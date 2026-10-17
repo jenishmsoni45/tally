@@ -6,6 +6,15 @@ spring:
       enabled: true
   flyway:
     enabled: true
+    # Migrations run as the schema owner; the application runs as tally_app (below),
+    # which has no UPDATE or DELETE on the journal. The owner credentials are throwaway
+    # local defaults matching compose.yaml; override them through the environment.
+    # Flyway reuses the datasource URL.
+    user: ${DATABASE_OWNER_USER:tally}
+    password: ${DATABASE_OWNER_PASSWORD:tally}
+    placeholders:
+      # Password given to the tally_app role when V3 creates it.
+      appPassword: ${DATABASE_PASSWORD:tally_app}
   jackson:
     time-zone: UTC
   transaction:
@@ -15,13 +24,14 @@ spring:
     # transaction. Phase 8 measures it and may change it.
     default-timeout: 5s
   datasource:
-    # Used when the app runs without Docker Compose support (java -jar). Under
-    # bootRun and in tests the Docker Compose or Testcontainers service
-    # connection takes precedence over these. The defaults are throwaway local
-    # values matching compose.yaml; override them through the environment.
+    # The application connects as tally_app, never as the owner. compose.yaml marks its
+    # postgres service as ignored by Docker Compose support, and the test containers
+    # set these properties themselves, so these values apply in every environment. The
+    # defaults are throwaway local values matching compose.yaml; override them through
+    # the environment.
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/tally}
-    username: ${DATABASE_USER:tally}
-    password: ${DATABASE_PASSWORD:tally}
+    username: ${DATABASE_USER:tally_app}
+    password: ${DATABASE_PASSWORD:tally_app}
     hikari:
       # Starting value, not a measurement: few connections keep Postgres from
       # thrashing, and posting transactions hold row locks, so a small pool also

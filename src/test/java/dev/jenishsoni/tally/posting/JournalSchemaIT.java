@@ -30,6 +30,7 @@ import dev.jenishsoni.tally.account.AccountService;
 class JournalSchemaIT {
 
     private static final String CHECK_VIOLATION = "23514";
+    private static final String FOREIGN_KEY_VIOLATION = "23503";
     private static final String INSUFFICIENT_PRIVILEGE = "42501";
 
     @Autowired
@@ -95,6 +96,33 @@ class JournalSchemaIT {
             insertLine(jdbc, entryId, cad.id(), 100, "CAD");
             insertLine(jdbc, entryId, usd.id(), -100, "USD");
         })).hasMessageContaining("does not balance");
+
+        assertThat(lineCount(entryId)).isZero();
+    }
+
+    @Test
+    void anEntryWithNoLinesFailsAtCommit() {
+        UUID entryId = UUID.randomUUID();
+
+        assertThatThrownBy(() -> inTransaction(() -> insertEntry(jdbc, entryId)))
+                .hasMessageContaining("has no lines")
+                .rootCause().isInstanceOfSatisfying(SQLException.class,
+                        e -> assertThat(e.getSQLState()).isEqualTo(CHECK_VIOLATION));
+    }
+
+    @Test
+    void aLineMustBeInItsAccountsCurrency() {
+        Account cad = account(accounts, "CAD", true);
+        Account usd = account(accounts, "USD", true);
+        UUID entryId = UUID.randomUUID();
+
+        // Each currency sums to zero, so only the account/currency link can refuse this entry.
+        assertThatThrownBy(() -> inTransaction(() -> {
+            insertEntry(jdbc, entryId);
+            insertLine(jdbc, entryId, cad.id(), 100, "USD");
+            insertLine(jdbc, entryId, usd.id(), -100, "USD");
+        })).rootCause().isInstanceOfSatisfying(SQLException.class,
+                e -> assertThat(e.getSQLState()).isEqualTo(FOREIGN_KEY_VIOLATION));
 
         assertThat(lineCount(entryId)).isZero();
     }

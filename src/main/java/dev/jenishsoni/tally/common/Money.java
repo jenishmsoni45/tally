@@ -8,7 +8,10 @@ import java.util.regex.Pattern;
  */
 public record Money(long minor, String currency) {
 
-    private static final Pattern CURRENCY_CODE = Pattern.compile("[A-Z]{3}");
+    /** Single definition of a valid currency code, shared with request validation. */
+    public static final String CURRENCY_PATTERN = "[A-Z]{3}";
+
+    private static final Pattern CURRENCY_CODE = Pattern.compile(CURRENCY_PATTERN);
 
     public Money {
         if (currency == null || !CURRENCY_CODE.matcher(currency).matches()) {

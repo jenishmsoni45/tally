@@ -8,6 +8,12 @@ spring:
     enabled: true
   jackson:
     time-zone: UTC
+  transaction:
+    # Starting value, not a measurement: a ledger transaction is a few indexed
+    # statements, so 5 s is far above normal and still ends a stalled one well
+    # before callers give up. Applied as a statement timeout inside the
+    # transaction. Phase 8 measures it and may change it.
+    default-timeout: 5s
   datasource:
     # Used when the app runs without Docker Compose support (java -jar). Under
     # bootRun and in tests the Docker Compose or Testcontainers service

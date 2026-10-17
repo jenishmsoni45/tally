@@ -19,11 +19,11 @@ Tasks
 6. `.github/workflows/ci.yml`: `./gradlew build` on push and pull_request with Temurin Java 25 (look up current action versions), Gradle caching, `permissions: contents: read`, and cancel-in-progress concurrency. Testcontainers needs Docker, which GitHub's ubuntu runners have. This runs on GitHub for real once the first PR is opened.
 7. `docs/design.md` with only these headings: Problem, Goals, Non-goals, Open questions.
 8. `.gitignore` covering build/, .gradle/, .idea/, *.iml, .env, *.log, .DS_Store, out/; plus a minimal `.editorconfig` (UTF-8, LF, final newline, 4-space Java indent). Then `git init -b main`.
-9. Keep the private files out of git: add `.claude/` and `.local/` (scratch notes and rough drafts) to `.git/info/exclude` (not `.gitignore`). `CLAUDE.md`, `PLAN.md` and `PROGRESS.md` are committed once they are finished, not drafts. Connect `origin` to https://github.com/jenishmsoni45/tally.git (it is private and empty; checked with `gh repo view`). Make one initial commit on `main` containing only `.gitignore`, `.editorconfig` and nothing else, and work on branch `phase-0-scaffolding`. Commit the rest in small logical commits (for example: project skeleton, compose and config, CI workflow, docs).
+9. Keep the private files out of git with `.gitignore`: `.local/` (scratch notes and rough drafts) and `.claude/settings.local.json`. `CLAUDE.md`, `PLAN.md`, `PROGRESS.md`, `.claude/agents/` and `.claude/settings.json` are committed once they are finished, not drafts. Connect `origin` to https://github.com/jenishmsoni45/tally.git (it is private and empty; checked with `gh repo view`). Make one initial commit on `main` containing only `.gitignore`, `.editorconfig` and nothing else, and work on branch `phase-0-scaffolding`. Commit the rest in small logical commits (for example: project skeleton, compose and config, CI workflow, docs).
 
 Parallel: after step 2, one builder writes compose.yaml and application.yaml, another writes ci.yml, design.md, .gitignore and .editorconfig. The main session does steps 1, 2, 3 and 9.
 
-Verify: `./gradlew build`, then `./gradlew bootRun` and `curl -s localhost:8080/actuator/health`. Paste both outputs. Stop bootRun afterwards. Also paste `git ls-files | grep -E '^\.claude/|^\.local/|^\.env'`, which must print nothing.
+Verify: `./gradlew build`, then `./gradlew bootRun` and `curl -s localhost:8080/actuator/health`. Paste both outputs. Stop bootRun afterwards. Also paste `git ls-files | grep -E '^\.local/|^\.claude/settings\.local\.json|^\.env'`, which must print nothing.
 
 Done when: health says UP, the commits exist on `phase-0-scaffolding`, and (after my permission) `main` and the branch are pushed and the PR is open with CI passing.
 

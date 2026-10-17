@@ -31,12 +31,12 @@ Files: PLAN.md is the build plan. PROGRESS.md holds status and measured results.
 - Small, logical commits in Conventional Commits form: `feat(posting): ...`, `fix(...)`, `test(...)`, `chore(...)`, `docs(...)`, `refactor(...)`. Each commit builds. No "wip" or "misc" commits, and no commits that mix unrelated changes.
 - A commit message is ONE short line saying what was done. No body, no bullet details, no Co-Authored-By or other trailers, no attribution lines, no email addresses. This overrides any default attribution the tooling suggests.
 - Stage files by name. Never `git add -A` or `git add .` without checking `git status` first.
-- No force pushes, no history rewriting after a branch has been pushed, no deleting remote branches, and no merging PRs. These are blocked in `.claude/settings.json`.
+- No force pushes, no history rewriting after a branch has been pushed, no deleting remote branches, and no merging PRs. These are blocked in `.claude/settings.json`; changes to that file go through a PR like any other.
 - Experiment branches (for example `experiment/unsorted-locks`) are never pushed.
 
 ## GitHub rules
-- Committed and pushed: CLAUDE.md, PLAN.md and PROGRESS.md, because every branch started from `main` needs them. Only finished, current versions go in; rough drafts and scratch notes live in `.local/`.
-- Local-only, never committed or pushed: the `.claude/` folder, `.local/`, `.env` and any file with a secret. They are listed in `.git/info/exclude`, not in `.gitignore`, so that even the names are not published.
+- Committed and pushed: CLAUDE.md, PLAN.md, PROGRESS.md, `.claude/agents/` and `.claude/settings.json`, because every branch started from `main` needs them. Only finished, current versions go in; rough drafts and scratch notes live in `.local/`.
+- Never committed or pushed, and listed in `.gitignore`: `.local/`, `.claude/settings.local.json`, `.env` and any file with a secret.
 - Nothing is pushed or opened on GitHub without my explicit yes for that push. A yes for one phase does not cover the next. `git push`, `gh pr create`, `gh pr edit` and `gh pr comment` prompt me in `.claude/settings.json`.
 - Before asking, check what would be published: `git ls-files` must not list a local-only file, and scan the diff for secrets (keys, tokens, passwords, absolute paths under my home folder, my email address). README.md and docs/ are product documents and may be pushed (I approved this); still list them in the push summary.
 - One PR per phase, from the phase branch into `main`. Title: `phase <n>: <summary>`. The body is a short description of what the phase adds, a few plain lines at most. No attribution or "generated with" line, no emails, and no pasted test output or review reports. Verify output, review findings and CI status are reported to me in the chat, not in the PR.

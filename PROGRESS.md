@@ -3,8 +3,8 @@
 | Phase | Status | Branch | PR | Notes |
 | --- | --- | --- | --- | --- |
 | 0 Tools and scaffolding | done, merged 2026-10-17 | phase-0-scaffolding | https://github.com/jenishmsoni45/tally/pull/1 | 10 commits on the branch, 1 on main; CI build passed in 3m13s |
-| 1 Money and accounts | done locally, awaiting push approval | phase-1-money-accounts | | 9 commits on the branch; `./gradlew clean build` passed, 27 tests |
-| 2A Posting: schema, endpoints, tests | not started | | | |
+| 1 Money and accounts | done, merged 2026-10-17 | phase-1-money-accounts | https://github.com/jenishmsoni45/tally/pull/3 | 9 commits on the branch; `./gradlew clean build` passed, 27 tests |
+| 2A Posting: schema, endpoints, tests | in progress | phase-2a-posting-schema | | |
 | 2B Posting: the service | not started | | | |
 | 3 Idempotency and reversals | not started | | | |
 | 4 Outbox and Kafka | not started | | | |

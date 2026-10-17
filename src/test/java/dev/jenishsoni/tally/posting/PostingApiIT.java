@@ -102,7 +102,7 @@ class PostingApiIT {
 
         client.post().uri("/entries")
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(Map.of("lines", List.of(line(a.id(), 0), line(b.id(), 0))))
+                .body(Map.of("lines", List.of(line(a.id(), 0), line(b.id(), 5))))
                 .exchange()
                 .expectStatus().isBadRequest()
                 .expectBody()
@@ -124,6 +124,25 @@ class PostingApiIT {
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("fromAccountId", UUID.randomUUID(), "toAccountId", UUID.randomUUID(),
                         "amount", -5, "currency", "CAD"))
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void aFractionalAmountIs400NotTruncated() {
+        Account a = account(accounts, "CAD", true);
+        Account b = account(accounts, "CAD", true);
+
+        client.post().uri("/transfers")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"fromAccountId\":\"" + a.id() + "\",\"toAccountId\":\"" + b.id()
+                        + "\",\"amount\":100.75,\"currency\":\"CAD\"}")
+                .exchange()
+                .expectStatus().isBadRequest();
+        client.post().uri("/entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"lines\":[{\"accountId\":\"" + a.id() + "\",\"amount\":100.75,\"currency\":\"CAD\"},"
+                        + "{\"accountId\":\"" + b.id() + "\",\"amount\":-100.75,\"currency\":\"CAD\"}]}")
                 .exchange()
                 .expectStatus().isBadRequest();
     }

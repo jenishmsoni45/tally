@@ -17,6 +17,9 @@ spring:
       appPassword: ${DATABASE_PASSWORD:tally_app}
   jackson:
     time-zone: UTC
+    deserialization:
+      # Amounts are whole cents: 100.75 must be a 400, never silently cut to 100.
+      accept-float-as-int: false
   transaction:
     # Starting value, not a measurement: a ledger transaction is a few indexed
     # statements, so 5 s is far above normal and still ends a stalled one well

@@ -1,6 +1,7 @@
 -- Flyway runs as the schema owner. The application connects as tally_app, which can
 -- read and insert journal rows but has no UPDATE or DELETE on them.
 -- The password comes from the appPassword Flyway placeholder (spring.flyway.placeholders).
+-- It is applied only when the role is created; rotate it later with ALTER ROLE, not here.
 do $$
 begin
     if not exists (select from pg_roles where rolname = 'tally_app') then

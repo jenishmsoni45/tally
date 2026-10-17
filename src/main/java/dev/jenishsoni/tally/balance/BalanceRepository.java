@@ -37,6 +37,8 @@ class BalanceRepository {
                 .optional();
     }
 
+    // Paging on line id is gap-free because posting inserts an account's lines while holding that
+    // account's balance row lock, so line ids on one account are assigned in commit order.
     List<AccountLine> findLinesAfter(UUID accountId, long cursor, int limit) {
         return jdbc.sql("""
                 select l.id, l.entry_id, e.kind, e.description, e.effective_at, l.amount, l.currency

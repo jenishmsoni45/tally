@@ -28,7 +28,8 @@ import dev.jenishsoni.tally.account.AccountService;
 /**
  * Many threads transfer between a few hot accounts at once. Money must be neither created nor
  * lost, every stored balance must equal the sum of its lines, and the only refusals allowed
- * are insufficient funds. The seed is printed so a failing run can be replayed.
+ * are insufficient funds. The seed is printed and fixes each thread's sequence of transfers; only
+ * the interleaving between threads varies from run to run.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest

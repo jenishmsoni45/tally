@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: tally
+  threads:
+    virtual:
+      enabled: true
+  flyway:
+    enabled: true
+  jackson:
+    time-zone: UTC
+  datasource:
+    # Used when the app runs without Docker Compose support (java -jar). Under
+    # bootRun and in tests the Docker Compose or Testcontainers service
+    # connection takes precedence over these. The defaults are throwaway local
+    # values matching compose.yaml; override them through the environment.
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/tally}
+    username: ${DATABASE_USER:tally}
+    password: ${DATABASE_PASSWORD:tally}
+    hikari:
+      # Starting value, not a measurement: few connections keep Postgres from
+      # thrashing, and posting transactions hold row locks, so a small pool also
+      # caps lock contention. Phase 8 measures it and may change it.
+      maximum-pool-size: 10
+      # Starting value (ms): fail fast on a saturated pool rather than hang
+      # callers. Mapping this failure to a 503 problem response comes later.
+      connection-timeout: 2000
+      # Pins every session to UTC regardless of the JVM or server default.
+      connection-init-sql: SET TIME ZONE 'UTC'
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

@@ -11,5 +11,9 @@ out/
 .env
 *.log
 
+# Private working files (rough drafts, personal Claude Code settings)
+.local/
+.claude/settings.local.json
+
 # OS
 .DS_Store

@@ -2,7 +2,7 @@
 
 | Phase | Status | Branch | PR | Notes |
 | --- | --- | --- | --- | --- |
-| 0 Tools and scaffolding | PR open, CI passing, awaiting your merge | phase-0-scaffolding | https://github.com/jenishmsoni45/tally/pull/1 | 10 commits on the branch, 1 on main; CI build passed in 3m13s |
+| 0 Tools and scaffolding | done, merged 2026-10-17 | phase-0-scaffolding | https://github.com/jenishmsoni45/tally/pull/1 | 10 commits on the branch, 1 on main; CI build passed in 3m13s |
 | 1 Money and accounts | not started | | | |
 | 2A Posting: schema, endpoints, tests | not started | | | |
 | 2B Posting: the service | not started | | | |

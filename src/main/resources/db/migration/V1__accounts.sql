@@ -1,7 +1,7 @@
 create table accounts (
     id             uuid        primary key,
     code           text        not null unique,
-    currency       char(3)     not null,
+    currency       char(3)     not null check (currency ~ '^[A-Z]{3}$'),
     allow_negative boolean     not null default false,
     created_at     timestamptz not null default now()
 );

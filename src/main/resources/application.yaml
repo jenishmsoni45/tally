@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: tally
+  threads:
+    virtual:
+      enabled: true
+  flyway:
+    enabled: true
+  jackson:
+    time-zone: UTC
+  datasource:
+    hikari:
+      # Postgres does its best work with few connections; 10 covers the posting
+      # transactions that hold row locks while virtual threads queue for a slot.
+      maximum-pool-size: 10
+      # Fail fast (ms): a saturated pool becomes a 503 instead of a long hang.
+      connection-timeout: 2000
+      # Pins every session to UTC regardless of the JVM or server default.
+      connection-init-sql: SET TIME ZONE 'UTC'
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

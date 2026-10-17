@@ -1,0 +1,65 @@
+# Local development stack for `./gradlew bootRun` (spring-boot-docker-compose starts it).
+# Every credential below is a throwaway local default. Override through the
+# environment (or an untracked .env file); never put a real password here.
+name: tally
+
+services:
+  postgres:
+    image: postgres:18.6
+    environment:
+      POSTGRES_DB: tally
+      POSTGRES_USER: ${POSTGRES_USER:-tally}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tally}
+    ports:
+      - "5432:5432"
+    volumes:
+      # PostgreSQL 18+ images keep a version-specific PGDATA below /var/lib/postgresql.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # Single-node KRaft: one container is both broker and controller, no ZooKeeper.
+  # Spring Boot has no Docker Compose service connection for Kafka, so the app
+  # reaches it through the default spring.kafka.bootstrap-servers=localhost:9092.
+  kafka:
+    image: apache/kafka:4.3.1
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: HOST://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: HOST
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      # One node cannot satisfy the default replication factor of 3.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  # Grafana, Tempo, Loki, Prometheus and an OTLP receiver in one image.
+  # The image documents no healthcheck, so none is defined here.
+  lgtm:
+    image: grafana/otel-lgtm:0.37.0
+    ports:
+      - "3000:3000"
+      - "4317:4317"
+      - "4318:4318"
+
+volumes:
+  postgres-data:

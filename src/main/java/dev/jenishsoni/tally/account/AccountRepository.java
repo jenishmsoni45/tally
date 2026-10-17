@@ -4,11 +4,19 @@ import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 @Repository
 class AccountRepository {
+
+    private static final RowMapper<Account> ACCOUNT_MAPPER = (rs, row) -> new Account(
+            rs.getObject("id", UUID.class),
+            rs.getString("code"),
+            rs.getString("currency"),
+            rs.getBoolean("allow_negative"),
+            rs.getObject("created_at", OffsetDateTime.class).toInstant());
 
     private final JdbcClient jdbc;
 
@@ -26,12 +34,7 @@ class AccountRepository {
                 .param("code", request.code())
                 .param("currency", request.currency())
                 .param("allowNegative", request.allowNegative())
-                .query((rs, row) -> new Account(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("code"),
-                        rs.getString("currency"),
-                        rs.getBoolean("allow_negative"),
-                        rs.getObject("created_at", OffsetDateTime.class).toInstant()))
+                .query(ACCOUNT_MAPPER)
                 .single();
     }
 
@@ -48,12 +51,7 @@ class AccountRepository {
                 where id = :id
                 """)
                 .param("id", id)
-                .query((rs, row) -> new Account(
-                        rs.getObject("id", UUID.class),
-                        rs.getString("code"),
-                        rs.getString("currency"),
-                        rs.getBoolean("allow_negative"),
-                        rs.getObject("created_at", OffsetDateTime.class).toInstant()))
+                .query(ACCOUNT_MAPPER)
                 .optional();
     }
 

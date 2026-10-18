@@ -5,8 +5,8 @@
 | 0 Tools and scaffolding | done, merged 2026-10-17 | phase-0-scaffolding | https://github.com/jenishmsoni45/tally/pull/1 | 10 commits on the branch, 1 on main; CI build passed in 3m13s |
 | 1 Money and accounts | done, merged 2026-10-17 | phase-1-money-accounts | https://github.com/jenishmsoni45/tally/pull/3 | 9 commits on the branch; `./gradlew clean build` passed, 27 tests |
 | 2A Posting: schema, endpoints, tests | done, merged 2026-10-18 | phase-2a-posting-schema | https://github.com/jenishmsoni45/tally/pull/4 | 13 commits on the branch; 51 tests, 47 pass; the 4 failures are the tests PLAN.md says wait for 2B, so CI on this PR is red by design |
-| 2B Posting: the service | done locally, awaiting push approval | phase-2b-posting-service | | 9 commits on the branch; 57 tests, 0 failures; `ConcurrencyIT` passed 20 of 20 runs; the unsorted-locks experiment failed 5 of 5 (below) |
-| 3 Idempotency and reversals | not started | | | |
+| 2B Posting: the service | done, merged 2026-10-18 | phase-2b-posting-service | https://github.com/jenishmsoni45/tally/pull/5 | 9 commits on the branch; 57 tests, 0 failures; `ConcurrencyIT` passed 20 of 20 runs; the unsorted-locks experiment failed 5 of 5 (below) |
+| 3 Idempotency and reversals | in progress | phase-3-idempotency-reversals | | |
 | 4 Outbox and Kafka | not started | | | |
 | 5 Reconciliation and observability | not started | | | |
 | 6 Failure testing | not started | | | |

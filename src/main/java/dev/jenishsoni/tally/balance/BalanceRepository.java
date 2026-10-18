@@ -37,6 +37,20 @@ class BalanceRepository {
                 .optional();
     }
 
+    Optional<Long> findBalanceForUpdate(UUID accountId) {
+        return jdbc.sql("select balance from balances where account_id = :accountId for update")
+                .param("accountId", accountId)
+                .query(Long.class)
+                .optional();
+    }
+
+    void updateBalance(UUID accountId, long balance) {
+        jdbc.sql("update balances set balance = :balance, updated_at = now() where account_id = :accountId")
+                .param("balance", balance)
+                .param("accountId", accountId)
+                .update();
+    }
+
     // Paging on line id is gap-free because posting inserts an account's lines while holding that
     // account's balance row lock, so line ids on one account are assigned in commit order.
     List<AccountLine> findLinesAfter(UUID accountId, long cursor, int limit) {

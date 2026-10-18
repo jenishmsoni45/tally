@@ -86,7 +86,7 @@ class ConcurrencyIT {
         List<LineRequest> lines = new ArrayList<>();
         funded.forEach(a -> lines.add(new LineRequest(a.id(), START_BALANCE, CURRENCY)));
         lines.add(new LineRequest(treasury.id(), -START_BALANCE * ACCOUNTS, CURRENCY));
-        posting.postEntry(new EntryRequest("funding", null, lines));
+        posting.postEntry("funding", new EntryRequest("funding", null, lines));
         return funded;
     }
 
@@ -96,11 +96,13 @@ class ConcurrencyIT {
         try (ExecutorService pool = Executors.newFixedThreadPool(THREADS)) {
             List<Future<?>> workers = new ArrayList<>();
             for (int t = 0; t < THREADS; t++) {
+                int thread = t;
                 Random random = new Random(SEED + t);
                 workers.add(pool.submit(() -> {
                     go.await();
                     for (int i = 0; i < TRANSFERS_PER_THREAD; i++) {
-                        transferOnce(funded, random, succeeded, refused, unexpected);
+                        // A fixed key per transfer keeps the run replayable from the seed.
+                        transferOnce("cc-" + thread + "-" + i, funded, random, succeeded, refused, unexpected);
                     }
                     return null;
                 }));
@@ -112,13 +114,13 @@ class ConcurrencyIT {
         }
     }
 
-    private void transferOnce(List<Account> funded, Random random, AtomicInteger succeeded,
+    private void transferOnce(String key, List<Account> funded, Random random, AtomicInteger succeeded,
             AtomicInteger refused, Queue<Exception> unexpected) {
         int from = random.nextInt(ACCOUNTS);
         int to = (from + 1 + random.nextInt(ACCOUNTS - 1)) % ACCOUNTS;
         long amount = 1 + random.nextLong(MAX_TRANSFER);
         try {
-            posting.postTransfer(new TransferRequest(
+            posting.postTransfer(key, new TransferRequest(
                     funded.get(from).id(), funded.get(to).id(), amount, CURRENCY, null, null));
             succeeded.incrementAndGet();
         } catch (InsufficientFundsException e) {

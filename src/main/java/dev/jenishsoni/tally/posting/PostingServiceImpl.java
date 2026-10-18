@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,8 +18,13 @@ import org.springframework.transaction.annotation.Transactional;
 import dev.jenishsoni.tally.account.Account;
 import dev.jenishsoni.tally.account.AccountService;
 import dev.jenishsoni.tally.balance.BalanceService;
+import dev.jenishsoni.tally.common.ConflictException;
 import dev.jenishsoni.tally.common.Money;
 import dev.jenishsoni.tally.common.UnprocessableException;
+import dev.jenishsoni.tally.idempotency.Claim;
+import dev.jenishsoni.tally.idempotency.IdempotencyStore;
+import dev.jenishsoni.tally.idempotency.RequestHash;
+import tools.jackson.databind.json.JsonMapper;
 
 @Service
 class PostingServiceImpl implements PostingService {
@@ -29,30 +35,66 @@ class PostingServiceImpl implements PostingService {
     // differ, which would let a later `order by account_id for update` deadlock against a posting.
     private static final Comparator<UUID> LOCK_ORDER = Comparator.comparing(UUID::toString);
 
+    // Only successful postings are saved; a refused one rolls back with its key, which can then be retried.
+    private static final int CREATED = 201;
+
     private final AccountService accounts;
     private final BalanceService balances;
     private final JournalRepository journal;
+    private final IdempotencyStore idempotency;
+    private final JsonMapper json;
 
-    PostingServiceImpl(AccountService accounts, BalanceService balances, JournalRepository journal) {
+    PostingServiceImpl(AccountService accounts, BalanceService balances, JournalRepository journal,
+            IdempotencyStore idempotency, JsonMapper json) {
         this.accounts = accounts;
         this.balances = balances;
         this.journal = journal;
+        this.idempotency = idempotency;
+        this.json = json;
     }
 
     @Override
     @Transactional
-    public JournalEntry postTransfer(TransferRequest request) {
+    public PostingResult postTransfer(String idempotencyKey, TransferRequest request) {
         requireValidTransfer(request);
         List<LineRequest> lines = List.of(
                 new LineRequest(request.fromAccountId(), Math.negateExact(request.amount()), request.currency()),
                 new LineRequest(request.toAccountId(), request.amount(), request.currency()));
-        return post("transfer", request.description(), request.effectiveAt(), lines);
+        return postOnce(idempotencyKey, "transfer", request,
+                () -> post("transfer", request.description(), request.effectiveAt(), lines));
     }
 
     @Override
     @Transactional
-    public JournalEntry postEntry(EntryRequest request) {
-        return post("entry", request.description(), request.effectiveAt(), request.lines());
+    public PostingResult postEntry(String idempotencyKey, EntryRequest request) {
+        return postOnce(idempotencyKey, "entry", request,
+                () -> post("entry", request.description(), request.effectiveAt(), request.lines()));
+    }
+
+    // Step 2. A replay returns here without touching any balance, so a retry never moves money twice.
+    private PostingResult postOnce(String idempotencyKey, String operation, Object request,
+            Supplier<JournalEntry> posting) {
+        String requestHash = RequestHash.of(operation, json.writeValueAsString(request));
+        return switch (idempotency.claim(idempotencyKey, requestHash)) {
+            case Claim.Claimed claimed -> saveResponse(idempotencyKey, posting.get());
+            case Claim.Replay replay -> replayed(idempotencyKey, replay);
+            case Claim.Conflict conflict ->
+                throw new ConflictException("Idempotency-Key was already used for a different request");
+        };
+    }
+
+    // Step 8.
+    private PostingResult saveResponse(String idempotencyKey, JournalEntry entry) {
+        idempotency.saveResponse(idempotencyKey, CREATED, json.writeValueAsString(entry));
+        log.info("Posted entry {} kind={} lines={} idempotencyKey={}",
+                entry.id(), entry.kind(), entry.lines().size(), idempotencyKey);
+        return new PostingResult(CREATED, entry);
+    }
+
+    private PostingResult replayed(String idempotencyKey, Claim.Replay replay) {
+        JournalEntry entry = json.readValue(replay.body(), JournalEntry.class);
+        log.info("Replayed entry {} idempotencyKey={}", entry.id(), idempotencyKey);
+        return new PostingResult(replay.status(), entry);
     }
 
     private JournalEntry post(String kind, String description, Instant effectiveAt, List<LineRequest> lines) {
@@ -64,7 +106,6 @@ class PostingServiceImpl implements PostingService {
         Map<UUID, Long> updated = requireNoOverdraft(touched, changes, current);
         JournalEntry entry = insertEntry(kind, description, effectiveAt, lines);
         updated.forEach(balances::storeBalance);
-        log.info("Posted entry {} kind={} lines={}", entry.id(), kind, lines.size());
         return entry;
     }
 

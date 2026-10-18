@@ -49,7 +49,7 @@ public class IdempotencyStore {
 
     @Transactional(propagation = Propagation.MANDATORY)
     public void saveResponse(String key, int status, String body) {
-        jdbc.sql("""
+        int updated = jdbc.sql("""
                 update idempotency_keys
                 set response_status = :status, response_body = cast(:body as jsonb)
                 where key = :key
@@ -58,6 +58,9 @@ public class IdempotencyStore {
                 .param("body", body)
                 .param("key", key)
                 .update();
+        if (updated != 1) {
+            throw new IllegalStateException("Idempotency key " + key + " was not claimed in this transaction");
+        }
     }
 
     private static Claim existingClaim(String key, String requestHash, String storedHash, Integer status,

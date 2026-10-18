@@ -91,6 +91,14 @@ class IdempotencyStoreIT {
     }
 
     @Test
+    void savingAResponseForAKeyThatWasNeverClaimedIsRefused() {
+        assertThatThrownBy(() -> inTransaction(() -> {
+            store.saveResponse(newKey(), 201, BODY);
+            return null;
+        })).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void claimingOutsideATransactionIsRefused() {
         assertThatThrownBy(() -> store.claim(newKey(), "hash-a"))
                 .isInstanceOf(IllegalTransactionStateException.class);

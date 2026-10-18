@@ -147,6 +147,62 @@ class PostingApiIT {
                 .expectStatus().isBadRequest();
     }
 
+    @Test
+    void aTransferToTheSameAccountIs400() {
+        Account a = account(accounts, "CAD", true);
+
+        client.post().uri("/transfers")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("fromAccountId", a.id(), "toAccountId", a.id(), "amount", 5, "currency", "CAD"))
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        assertNoLines(a.id());
+    }
+
+    @Test
+    void anUnknownAccountIs404AndLeavesNoTrace() {
+        Account a = account(accounts, "CAD", true);
+
+        client.post().uri("/entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("lines", List.of(line(a.id(), 10), line(UUID.randomUUID(), -10))))
+                .exchange()
+                .expectStatus().isNotFound();
+
+        assertNoLines(a.id());
+    }
+
+    @Test
+    void aLineInTheWrongCurrencyIs422() {
+        Account cad = account(accounts, "CAD", true);
+        Account usd = account(accounts, "USD", true);
+
+        client.post().uri("/entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("lines", List.of(line(cad.id(), 10), line(usd.id(), -10))))
+                .exchange()
+                .expectStatus().isEqualTo(422);
+
+        assertNoLines(cad.id(), usd.id());
+    }
+
+    @Test
+    void amountsThatOverflowAreRefusedNotWrapped() {
+        Account a = account(accounts, "CAD", true);
+        Account b = account(accounts, "CAD", true);
+        Account c = account(accounts, "CAD", true);
+
+        client.post().uri("/entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("lines", List.of(line(a.id(), Long.MAX_VALUE), line(b.id(), Long.MAX_VALUE),
+                        line(c.id(), -2L))))
+                .exchange()
+                .expectStatus().isEqualTo(422);
+
+        assertNoLines(a.id(), b.id(), c.id());
+    }
+
     private void assertBalance(UUID accountId, long expected) {
         client.get().uri("/accounts/{id}/balance", accountId)
                 .exchange()

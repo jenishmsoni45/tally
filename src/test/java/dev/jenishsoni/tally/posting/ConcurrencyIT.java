@@ -65,7 +65,9 @@ class ConcurrencyIT {
         runTransfers(funded, succeeded, refused, unexpected);
 
         System.out.println("ConcurrencyIT succeeded=" + succeeded + " refusedForFunds=" + refused);
-        assertThat(unexpected).isEmpty();
+        assertThat(unexpected.stream().map(Throwable::toString).distinct().toList())
+                .as("distinct unexpected failures out of %d", unexpected.size())
+                .isEmpty();
         assertThat(succeeded.get() + refused.get()).isEqualTo(THREADS * TRANSFERS_PER_THREAD);
         assertThat(succeeded.get()).isPositive();
         assertThat(totalBalance(funded)).isEqualTo(ACCOUNTS * START_BALANCE);

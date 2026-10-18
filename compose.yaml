@@ -8,6 +8,10 @@ name: tally
 services:
   postgres:
     image: postgres:18.6
+    labels:
+      # Keeps Docker Compose support from wiring the app to this container as its owner
+      # user; the app connects as tally_app using the datasource settings.
+      org.springframework.boot.ignore: "true"
     environment:
       POSTGRES_DB: tally
       POSTGRES_USER: ${POSTGRES_USER:-tally}

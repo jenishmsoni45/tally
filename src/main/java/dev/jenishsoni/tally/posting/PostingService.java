@@ -26,7 +26,10 @@ public interface PostingService {
 
     PostingResult postEntry(String idempotencyKey, EntryRequest request);
 
-    /** Posts the mirror image of an entry's lines, which undoes the entry's effect on every account. */
+    /**
+     * Posts the mirror image of an entry's lines, which undoes the entry's effect on every account.
+     * A reversal can itself be reversed once, which applies the original entry's effect again.
+     */
     PostingResult reverseEntry(String idempotencyKey, UUID entryId);
 
 }

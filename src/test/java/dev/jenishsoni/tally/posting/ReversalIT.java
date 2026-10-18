@@ -141,6 +141,19 @@ class ReversalIT {
     }
 
     @Test
+    void aReversalCanBeReversedAndThatAppliesTheOriginalAgain() {
+        Account source = account(accounts, "CAD", true);
+        Account destination = account(accounts, "CAD", true);
+        JournalEntry original = transfer(source, destination, 2500);
+        UUID reversal = reverseId(original.id());
+
+        reverse(reversal, key(), 201);
+
+        assertThat(balance(destination)).isEqualTo(2500);
+        assertThat(balance(source)).isEqualTo(-2500);
+    }
+
+    @Test
     void reversingAnUnknownEntryIs404() {
         reverse(UUID.randomUUID(), key(), 404);
     }
@@ -184,6 +197,10 @@ class ReversalIT {
                 .expectBody(String.class)
                 .returnResult()
                 .getResponseBody();
+    }
+
+    private UUID reverseId(UUID entryId) {
+        return posting.reverseEntry(key(), entryId).entry().id();
     }
 
     private int reverseStatus(UUID entryId) {

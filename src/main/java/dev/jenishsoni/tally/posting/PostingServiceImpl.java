@@ -87,9 +87,9 @@ class PostingServiceImpl implements PostingService {
             Supplier<JournalEntry> posting) {
         String requestHash = RequestHash.of(operation, json.writeValueAsString(request));
         return switch (idempotency.claim(idempotencyKey, requestHash)) {
-            case Claim.Claimed claimed -> saveResponse(idempotencyKey, posting.get());
+            case Claim.Claimed _ -> saveResponse(idempotencyKey, posting.get());
             case Claim.Replay replay -> replayed(idempotencyKey, replay);
-            case Claim.Conflict conflict ->
+            case Claim.Conflict _ ->
                 throw new ConflictException("Idempotency-Key was already used for a different request");
         };
     }

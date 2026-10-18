@@ -36,6 +36,7 @@ class PostingServiceImpl implements PostingService {
     @Override
     @Transactional
     public JournalEntry postTransfer(TransferRequest request) {
+        requireValidTransfer(request);
         List<LineRequest> lines = List.of(
                 new LineRequest(request.fromAccountId(), Math.negateExact(request.amount()), request.currency()),
                 new LineRequest(request.toAccountId(), request.amount(), request.currency()));
@@ -59,6 +60,16 @@ class PostingServiceImpl implements PostingService {
         updated.forEach(balances::storeBalance);
         log.info("Posted entry {} kind={} lines={}", entry.id(), kind, lines.size());
         return entry;
+    }
+
+    // The controller validates these too; callers inside the service must not be able to flip a transfer's direction.
+    private void requireValidTransfer(TransferRequest request) {
+        if (request.amount() <= 0) {
+            throw new IllegalArgumentException("A transfer amount must be positive");
+        }
+        if (request.fromAccountId().equals(request.toAccountId())) {
+            throw new IllegalArgumentException("A transfer needs two different accounts");
+        }
     }
 
     // Step 1: the lines must sum to zero in every currency (the database checks again at commit).
@@ -104,7 +115,8 @@ class PostingServiceImpl implements PostingService {
         return changes;
     }
 
-    // Step 3: ascending account id, the same order in every posting, so two postings never wait on each other.
+    // Step 3: ascending account id in UUID.compareTo order (which differs from PostgreSQL's uuid order). Any
+    // code that locks balances must use this same order, so two postings never wait on each other.
     private Map<UUID, Long> lockBalances(Map<UUID, Money> changes) {
         Map<UUID, Long> current = new TreeMap<>();
         for (UUID accountId : changes.keySet()) {
@@ -120,8 +132,8 @@ class PostingServiceImpl implements PostingService {
         changes.forEach((accountId, change) -> {
             Money next = plus(new Money(current.get(accountId), change.currency()), change);
             if (next.minor() < 0 && !touched.get(accountId).allowNegative()) {
-                throw new InsufficientFundsException("Account " + accountId + " has "
-                        + current.get(accountId) + " but the entry needs " + -change.minor());
+                throw new InsufficientFundsException("Account " + accountId + " has " + current.get(accountId)
+                        + " and the entry changes it by " + change.minor());
             }
             updated.put(accountId, next.minor());
         });

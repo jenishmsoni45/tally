@@ -13,7 +13,10 @@ public final class RequestHash {
 
     /**
      * SHA-256, as hex, of the operation and the canonical JSON of its request. The operation is part
-     * of the hash so one key cannot be replayed across endpoints.
+     * of the hash so one key cannot be replayed across endpoints. The JSON is the bound request
+     * serialized again, not the raw body: requests the server reads identically (field order, an absent
+     * or null field, offset spelling) are the same request. Changing a request record's serialization
+     * therefore changes the hash of keys already stored.
      */
     public static String of(String operation, String canonicalJson) {
         try {

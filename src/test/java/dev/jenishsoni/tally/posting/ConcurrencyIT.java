@@ -32,7 +32,9 @@ import dev.jenishsoni.tally.account.AccountService;
  * the interleaving between threads varies from run to run.
  */
 @Import(TestcontainersConfiguration.class)
-@SpringBootTest
+// THREADS far exceeds the pool, so on a slow machine threads queue for a connection longer than
+// production's 2 s fail-fast timeout. This test checks ledger correctness, not pool saturation.
+@SpringBootTest(properties = "spring.datasource.hikari.connection-timeout=60000")
 class ConcurrencyIT {
 
     private static final long SEED = 20261017L;

@@ -44,6 +44,7 @@ class PostingApiIT {
         Account destination = account(accounts, "CAD", false);
 
         client.post().uri("/transfers")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("fromAccountId", source.id(), "toAccountId", destination.id(),
                         "amount", 2500, "currency", "CAD", "description", "rent"))
@@ -71,6 +72,7 @@ class PostingApiIT {
         Account b = account(accounts, "CAD", true);
 
         client.post().uri("/entries")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("lines", List.of(line(a.id(), 100), line(b.id(), -90))))
                 .exchange()
@@ -88,6 +90,7 @@ class PostingApiIT {
         Account other = account(accounts, "CAD", false);
 
         client.post().uri("/transfers")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("fromAccountId", poor.id(), "toAccountId", other.id(),
                         "amount", 1, "currency", "CAD"))
@@ -105,6 +108,7 @@ class PostingApiIT {
         Account b = account(accounts, "CAD", true);
 
         client.post().uri("/entries")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("lines", List.of(line(a.id(), 0), line(b.id(), 5))))
                 .exchange()
@@ -116,6 +120,7 @@ class PostingApiIT {
     @Test
     void anEntryWithoutLinesIs400() {
         client.post().uri("/entries")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("lines", List.of()))
                 .exchange()
@@ -125,6 +130,7 @@ class PostingApiIT {
     @Test
     void aNonPositiveTransferAmountIs400() {
         client.post().uri("/transfers")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("fromAccountId", UUID.randomUUID(), "toAccountId", UUID.randomUUID(),
                         "amount", -5, "currency", "CAD"))
@@ -138,12 +144,14 @@ class PostingApiIT {
         Account b = account(accounts, "CAD", true);
 
         client.post().uri("/transfers")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("{\"fromAccountId\":\"" + a.id() + "\",\"toAccountId\":\"" + b.id()
                         + "\",\"amount\":100.75,\"currency\":\"CAD\"}")
                 .exchange()
                 .expectStatus().isBadRequest();
         client.post().uri("/entries")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("{\"lines\":[{\"accountId\":\"" + a.id() + "\",\"amount\":100.75,\"currency\":\"CAD\"},"
                         + "{\"accountId\":\"" + b.id() + "\",\"amount\":-100.75,\"currency\":\"CAD\"}]}")
@@ -156,6 +164,7 @@ class PostingApiIT {
         Account a = account(accounts, "CAD", true);
 
         client.post().uri("/transfers")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("fromAccountId", a.id(), "toAccountId", a.id(), "amount", 5, "currency", "CAD"))
                 .exchange()
@@ -169,6 +178,7 @@ class PostingApiIT {
         Account a = account(accounts, "CAD", true);
 
         client.post().uri("/entries")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("lines", List.of(line(a.id(), 10), line(UUID.randomUUID(), -10))))
                 .exchange()
@@ -183,6 +193,7 @@ class PostingApiIT {
         Account usd = account(accounts, "USD", true);
 
         client.post().uri("/entries")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("lines", List.of(line(cad.id(), 10), line(usd.id(), -10))))
                 .exchange()
@@ -198,6 +209,7 @@ class PostingApiIT {
         Account c = account(accounts, "CAD", true);
 
         client.post().uri("/entries")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("lines", List.of(line(a.id(), Long.MAX_VALUE), line(b.id(), Long.MAX_VALUE),
                         line(c.id(), -2L))))
@@ -213,6 +225,7 @@ class PostingApiIT {
         Account other = account(accounts, "CAD", true);
 
         client.post().uri("/entries")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("lines", List.of(line(poor.id(), -50), line(poor.id(), 50),
                         line(other.id(), 10), line(other.id(), -10))))
@@ -221,6 +234,7 @@ class PostingApiIT {
         assertBalance(poor.id(), 0);
 
         client.post().uri("/entries")
+                .header("Idempotency-Key", key())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(Map.of("lines", List.of(line(poor.id(), -50), line(poor.id(), 30), line(other.id(), 20))))
                 .exchange()
@@ -234,9 +248,9 @@ class PostingApiIT {
         Account a = account(accounts, "CAD", true);
         Account b = account(accounts, "CAD", true);
 
-        assertThatThrownBy(() -> posting.postTransfer(new TransferRequest(a.id(), a.id(), 5L, "CAD", null, null)))
+        assertThatThrownBy(() -> posting.postTransfer(key(), new TransferRequest(a.id(), a.id(), 5L, "CAD", null, null)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> posting.postTransfer(new TransferRequest(a.id(), b.id(), -5L, "CAD", null, null)))
+        assertThatThrownBy(() -> posting.postTransfer(key(), new TransferRequest(a.id(), b.id(), -5L, "CAD", null, null)))
                 .isInstanceOf(IllegalArgumentException.class);
         assertNoLines(a.id(), b.id());
     }
@@ -257,6 +271,10 @@ class PostingApiIT {
                     .single();
             assertThat(count).isZero();
         }
+    }
+
+    private static String key() {
+        return UUID.randomUUID().toString();
     }
 
     private static Map<String, Object> line(UUID accountId, long amount) {

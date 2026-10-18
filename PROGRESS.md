@@ -5,8 +5,8 @@
 | 0 Tools and scaffolding | done, merged 2026-10-17 | phase-0-scaffolding | https://github.com/jenishmsoni45/tally/pull/1 | 10 commits on the branch, 1 on main; CI build passed in 3m13s |
 | 1 Money and accounts | done, merged 2026-10-17 | phase-1-money-accounts | https://github.com/jenishmsoni45/tally/pull/3 | 9 commits on the branch; `./gradlew clean build` passed, 27 tests |
 | 2A Posting: schema, endpoints, tests | done, merged 2026-10-18 | phase-2a-posting-schema | https://github.com/jenishmsoni45/tally/pull/4 | 13 commits on the branch; 51 tests, 47 pass; the 4 failures are the tests PLAN.md says wait for 2B, so CI on this PR is red by design |
-| 2B Posting: the service | done locally, awaiting push approval | phase-2b-posting-service | | 9 commits on the branch; 57 tests, 0 failures; `ConcurrencyIT` passed 20 of 20 runs; the unsorted-locks experiment failed 5 of 5 (below) |
-| 3 Idempotency and reversals | not started | | | |
+| 2B Posting: the service | done, merged 2026-10-18 | phase-2b-posting-service | https://github.com/jenishmsoni45/tally/pull/5 | 9 commits on the branch; 57 tests, 0 failures; `ConcurrencyIT` passed 20 of 20 runs; the unsorted-locks experiment failed 5 of 5 (below) |
+| 3 Idempotency and reversals | done locally, awaiting push approval | phase-3-idempotency-reversals | | 13 commits on the branch (with this one); 88 tests, 0 failures; the same-key test passed 20 of 20 runs (below) |
 | 4 Outbox and Kafka | not started | | | |
 | 5 Reconciliation and observability | not started | | | |
 | 6 Failure testing | not started | | | |
@@ -58,6 +58,17 @@ Phase 2B, 2026-10-18, same machine and tool versions as Phase 0. Conditions: loc
 
 The experiment: the only change was `netChangePerAccount` using a `LinkedHashMap` instead of the sorted `TreeMap`, so `lockBalances` locked accounts in the order the lines arrived. The failures in the last run were PostgreSQL `ERROR: deadlock detected` on `select balance from balances where account_id = ? for update` (for example "Process 80 waits for ShareLock on transaction 847; blocked by process 82. Process 82 waits for ShareLock on transaction 849; blocked by process 80"), plus `CannotCreateTransactionException: Could not open JDBC Connection`. Why: with 10 accounts and 50 threads, one transfer A to B and another B to A each lock their first account and then wait for the other's, and neither can proceed. PostgreSQL breaks each cycle by aborting one transaction. The connection errors are most likely a side effect (aborted and waiting transactions hold pooled connections while the pool of 10 has a 2000 ms timeout); I did not verify that separately. With sorted locking the same test passed 40 of 40 runs. The experiment branch is local only, one commit, and was not merged or pushed.
 
+Phase 3, 2026-10-18, same machine and tool versions as Phase 0. Conditions: local machine, images already pulled.
+
+| What | Result |
+| --- | --- |
+| `./gradlew clean build` (final code) | BUILD SUCCESSFUL in 37s, 88 tests, 0 failures, 0 skipped |
+| Tests by class | `MoneyTest` 16, `AccountApiIT` 10, `BalanceApiIT` 9, `JournalSchemaIT` 12, `PostingApiIT` 13, `IdempotencyIT` 10, `IdempotencyStoreIT` 7, `ReversalIT` 9, `ConcurrencyIT` 1, `TallyApplicationTests` 1 |
+| `IdempotencyIT.twentyThreadsSendingTheSameKeyCreateExactlyOneEntry` in a loop of 20 (`--rerun` each time, final code) | passed 20 of 20. 20 simultaneous HTTP requests with one key: all got 201 with the same body, one entry, one line per account. |
+| `ReversalIT.anEntryReversedByEightRequestsAtOnceIsReversedOnceAndTheRestAreConflicts` in a loop of 20 (final code) | passed 20 of 20. One 201 and seven 409, never a 422. |
+| Mutation check: `requireNotReversedYet` moved after the overdraft check | `ReversalIT` 2 of 8 failed (the second-reversal-is-409 test and the eight-at-once test), so those tests do depend on the order. Reverted. |
+| `EXPLAIN` of the asOf query on a throwaway PostgreSQL 18.6 container, 30,000 entries x 2 lines on one account, tables analyzed, plans only (no timings) | asOf 29,900 minutes back (100 of 30,000 entries match): the planner used `journal_entries_created_at_idx`. asOf 15,000 minutes back and asOf 100 minutes back (most entries match): it scanned the account's lines and did not use the index. So the index helps only an early asOf. The test was thrown away, not committed. |
+
 ## Things that broke and how they were fixed
 
 - Phase 0, the `builder` and `scope-reviewer` agent types were not registered in the session (the session started before `.claude/` was moved to the repo root). Used general-purpose agents with the same rules written into the prompt. Restart Claude Code in this folder so the named agents load.
@@ -76,6 +87,13 @@ The experiment: the only change was `netChangePerAccount` using a `LinkedHashMap
 - Phase 2B, code review (10 findings) and the scope-reviewer's pre-test and final reviews. Fixed: lock order used `UUID.compareTo`, which is signed and differs from PostgreSQL's uuid order, so a later `order by account_id for update` could deadlock against a posting (now `Comparator.comparing(UUID::toString)`); no test covered netting of repeated accounts in one entry or the service's own transfer checks (added); the insufficient-funds message could print a wrong figure (reworded). Declined on purpose: `IllegalArgumentException` for direct-caller preconditions and no service-level empty-lines check (the controller validates, and the deferred triggers are the backstop); the `@AssertTrue` error is reported under the field name `toAccountDifferent`; a "no transaction timeout" claim was wrong (the 5 s default is set in application.yaml); a negative balance on a no-overdraft account cannot happen because `allow_negative` is never updated.
 - Phase 2B, first `PostingApiIT` run after adding the service passed at once. The `builder` agent was not used (the plan says none for this phase); the `scope-reviewer` ran twice (before the tests, as the plan requires, and at the phase end).
 - Phase 2B, the experiment's failed runs took far longer than passing ones: the 5 failed runs did not finish inside a 10-minute foreground limit and were moved to the background.
+
+- Phase 3, adding a constraint (`@Pattern`) to the `Idempotency-Key` header made Spring validate the whole controller method, so a bad request body came back as `HandlerMethodValidationException` without the `errors` list, and `PostingApiIT.aLineWithAmountZeroIs400` failed. Fixed by handling that exception in `ApiExceptionHandler` and listing the violations in the same shape.
+- Phase 3, a test that sent the key `café` got 201: the test client replaced the non-ASCII character with `?`, so the server saw `caf?`. A client limitation, not a server bug; the case was removed and `two words` and a tab cover the pattern. The `IdempotencyStoreIT` first expectation compared jsonb text with the original text, and jsonb adds whitespace; the assertion now ignores whitespace.
+- Phase 3, a reversal that came second was first answered 422 (overdraft) instead of 409, because the overdraft check ran before the already-reversed check. The reversed check now runs right after the balance locks are held, so a competing reversal is always visible and the answer is always 409.
+- Phase 3, code review (10 findings). Fixed: `saveResponse` now fails if no row was updated; unused pattern bindings removed; `ConcurrencyIT` keys carry a per-run prefix; limits documented (asOf and the request hash). Not fixed, on purpose: reversing a reversal is allowed (documented and tested); `Claim.Replay` and `PostingResult` carry a status that is always 201, because the plan specifies `Replay(status, body)` and it makes replay faithful by construction; class-level validation errors are not listed by the new handler (no such constraint exists; the older handler behaves the same); the migration is `V4` because `V3` is taken (already under Ideas). The security review found nothing. The scope-reviewer found no missing plan item and no unlisted work except the key format rule and the handler, both explained here.
+- Phase 3, decision: only successful postings save their idempotency key. A refused posting (422, 404) rolls back with its key, so a retry with the same key runs again. Tested in `IdempotencyIT.aRefusedRequestDoesNotUseUpItsKey`.
+- Phase 3, the hash is the SHA-256 of the operation name and the bound request serialized again, not of the raw body (PLAN.md says "canonical JSON body"). Requests the server reads identically hash the same.
 
 ## Ideas (out of scope for now)
 
@@ -97,5 +115,9 @@ The experiment: the only change was `netChangePerAccount` using a `LinkedHashMap
 - A posting does one query per account and per line (account lookup, lock, balance update, line insert; up to 100 lines). Batching would shorten lock hold time. Measure in Phase 8 before changing.
 - `requireBalanced` sums in request order, so a valid entry whose running sum overflows (for example MAX, MAX, -MAX, -MAX) is refused with a 422. Safe, but could be summed differently if it ever matters.
 - `BalanceRepository.updateBalance` ignores the updated-row count. The row is locked in the same transaction so zero rows is impossible today.
-- The log line for a posting has the entry id but not the idempotency key; add the key in Phase 3. Refused postings log nothing.
+- Idempotency keys are global and never expire: no caller scope and no cleanup of old rows. Add both when authentication exists. Consider also replaying refused requests if clients need the same 422 back.
+- `asOf` filters on `created_at`, which is the transaction start time, so a read while an earlier-started posting is still committing can miss it, and the same asOf answers differently once it commits. A commit-ordered cut would need another key. The `created_at` index serves only an early asOf (see the EXPLAIN result); measure in Phase 8 whether the asOf query needs another design.
+- The log line for a refused posting is still missing; refused postings log nothing.
+- `journal_entries.kind` and `reverses_id` are not tied together: nothing stops a `reversal` row without `reverses_id`, or the reverse. Add a check in a later migration if wanted.
+- The validation handlers list field errors only, not class-level errors.
 - Commit `4da8e9c` bundles the service-side transfer check, a lock-order comment that `3f4dbcb` later corrected, and a reworded message. Not split: a rebase needs approval.

@@ -1,5 +1,6 @@
 package dev.jenishsoni.tally.balance;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +27,11 @@ class BalanceController {
     @GetMapping("/accounts/{id}/balance")
     BalanceResponse balance(@PathVariable UUID id) {
         return service.balanceOf(id);
+    }
+
+    @GetMapping(value = "/accounts/{id}/balance", params = "asOf")
+    AsOfBalanceResponse balanceAsOf(@PathVariable UUID id, @RequestParam Instant asOf) {
+        return service.balanceAsOf(id, asOf);
     }
 
     @GetMapping("/accounts/{id}/entries")

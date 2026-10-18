@@ -5,6 +5,7 @@ import static dev.jenishsoni.tally.LedgerFixtures.insertEntry;
 import static dev.jenishsoni.tally.LedgerFixtures.insertLine;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Instant;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -21,8 +22,10 @@ import org.springframework.transaction.support.TransactionTemplate;
 import dev.jenishsoni.tally.TestcontainersConfiguration;
 import dev.jenishsoni.tally.account.Account;
 import dev.jenishsoni.tally.account.AccountService;
+import dev.jenishsoni.tally.posting.PostingService;
+import dev.jenishsoni.tally.posting.TransferRequest;
 
-/** The read endpoints, over rows seeded with raw SQL because the posting service is not built yet. */
+/** The read endpoints, over rows seeded with raw SQL or posted through the service. */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
@@ -39,6 +42,9 @@ class BalanceApiIT {
 
     @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private PostingService posting;
 
     @Test
     void returnsTheStoredBalanceAndCurrency() {
@@ -128,6 +134,65 @@ class BalanceApiIT {
             insertLine(jdbc, entryId, to.id(), amount, "CAD");
             insertLine(jdbc, entryId, from.id(), -amount, "CAD");
         });
+    }
+
+    @Test
+    void asOfReturnsTheBalanceAccountsHadAfterEachEntryNotTheLaterOnes() {
+        Account source = account(accounts, "CAD", true);
+        Account destination = account(accounts, "CAD", false);
+        Instant first = transfer(source, destination, 100);
+        Instant second = transfer(source, destination, 50);
+
+        assertAsOf(destination, first.minusNanos(1_000), 0);
+        assertAsOf(destination, first, 100);
+        assertAsOf(destination, second.minusNanos(1_000), 100);
+        assertAsOf(destination, second, 150);
+        assertAsOf(source, first, -100);
+        assertAsOf(destination, second.plusSeconds(3600), 150);
+        client.get().uri("/accounts/{id}/balance", destination.id())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.balance").isEqualTo(150);
+    }
+
+    @Test
+    void asOfForAnAccountWithNoEntriesYetIsZero() {
+        Account account = account(accounts, "CAD", false);
+
+        assertAsOf(account, Instant.now(), 0);
+    }
+
+    @Test
+    void asOfForAnUnknownAccountIs404() {
+        client.get().uri("/accounts/{id}/balance?asOf={asOf}", UUID.randomUUID(), Instant.now().toString())
+                .exchange()
+                .expectStatus().isNotFound();
+    }
+
+    @Test
+    void anAsOfThatIsNotATimestampIs400() {
+        Account account = account(accounts, "CAD", false);
+
+        client.get().uri("/accounts/{id}/balance?asOf=yesterday", account.id())
+                .exchange()
+                .expectStatus().isBadRequest();
+    }
+
+    private Instant transfer(Account from, Account to, long amount) {
+        return posting.postTransfer(UUID.randomUUID().toString(),
+                new TransferRequest(from.id(), to.id(), amount, "CAD", null, null)).entry().createdAt();
+    }
+
+    private void assertAsOf(Account account, Instant asOf, long expectedBalance) {
+        client.get().uri("/accounts/{id}/balance?asOf={asOf}", account.id(), asOf.toString())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.accountId").isEqualTo(account.id().toString())
+                .jsonPath("$.balance").isEqualTo(expectedBalance)
+                .jsonPath("$.currency").isEqualTo("CAD")
+                .jsonPath("$.asOf").isNotEmpty();
     }
 
 }

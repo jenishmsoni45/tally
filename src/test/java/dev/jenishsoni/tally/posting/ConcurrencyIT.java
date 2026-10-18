@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Queue;
 import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -45,6 +46,9 @@ class ConcurrencyIT {
     // Large enough relative to START_BALANCE that some transfers are refused as overdrafts.
     private static final long MAX_TRANSFER = 3_000;
     private static final String CURRENCY = "CAD";
+    // Keys are global and outlive the test, so a reused database must not see the same ones twice.
+    // They do not change what the test does, so the run stays replayable from the seed.
+    private static final String RUN = UUID.randomUUID().toString();
 
     @Autowired
     private PostingService posting;
@@ -86,7 +90,7 @@ class ConcurrencyIT {
         List<LineRequest> lines = new ArrayList<>();
         funded.forEach(a -> lines.add(new LineRequest(a.id(), START_BALANCE, CURRENCY)));
         lines.add(new LineRequest(treasury.id(), -START_BALANCE * ACCOUNTS, CURRENCY));
-        posting.postEntry(new EntryRequest("funding", null, lines));
+        posting.postEntry("funding-" + RUN, new EntryRequest("funding", null, lines));
         return funded;
     }
 
@@ -96,11 +100,13 @@ class ConcurrencyIT {
         try (ExecutorService pool = Executors.newFixedThreadPool(THREADS)) {
             List<Future<?>> workers = new ArrayList<>();
             for (int t = 0; t < THREADS; t++) {
+                int thread = t;
                 Random random = new Random(SEED + t);
                 workers.add(pool.submit(() -> {
                     go.await();
                     for (int i = 0; i < TRANSFERS_PER_THREAD; i++) {
-                        transferOnce(funded, random, succeeded, refused, unexpected);
+                        // A fixed key per transfer keeps the run replayable from the seed.
+                        transferOnce("cc-" + RUN + "-" + thread + "-" + i, funded, random, succeeded, refused, unexpected);
                     }
                     return null;
                 }));
@@ -112,13 +118,13 @@ class ConcurrencyIT {
         }
     }
 
-    private void transferOnce(List<Account> funded, Random random, AtomicInteger succeeded,
+    private void transferOnce(String key, List<Account> funded, Random random, AtomicInteger succeeded,
             AtomicInteger refused, Queue<Exception> unexpected) {
         int from = random.nextInt(ACCOUNTS);
         int to = (from + 1 + random.nextInt(ACCOUNTS - 1)) % ACCOUNTS;
         long amount = 1 + random.nextLong(MAX_TRANSFER);
         try {
-            posting.postTransfer(new TransferRequest(
+            posting.postTransfer(key, new TransferRequest(
                     funded.get(from).id(), funded.get(to).id(), amount, CURRENCY, null, null));
             succeeded.incrementAndGet();
         } catch (InsufficientFundsException e) {

@@ -2,6 +2,8 @@ package dev.jenishsoni.tally.posting;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -22,6 +24,10 @@ import dev.jenishsoni.tally.common.UnprocessableException;
 class PostingServiceImpl implements PostingService {
 
     private static final Logger log = LoggerFactory.getLogger(PostingServiceImpl.class);
+
+    // Ascending account id as PostgreSQL orders uuid (unsigned bytes). UUID.compareTo is signed and would
+    // differ, which would let a later `order by account_id for update` deadlock against a posting.
+    private static final Comparator<UUID> LOCK_ORDER = Comparator.comparing(UUID::toString);
 
     private final AccountService accounts;
     private final BalanceService balances;
@@ -89,7 +95,7 @@ class PostingServiceImpl implements PostingService {
 
     // An unknown account is a 404 here, before any lock is taken.
     private Map<UUID, Account> loadAccounts(List<LineRequest> lines) {
-        Map<UUID, Account> touched = new TreeMap<>();
+        Map<UUID, Account> touched = new HashMap<>();
         for (LineRequest line : lines) {
             touched.computeIfAbsent(line.accountId(), accounts::get);
         }
@@ -106,19 +112,18 @@ class PostingServiceImpl implements PostingService {
         }
     }
 
-    // The map is sorted by account id, which is the order step 3 locks in.
+    // The only ordered map: its iteration order is the order step 3 locks in.
     private Map<UUID, Money> netChangePerAccount(List<LineRequest> lines) {
-        Map<UUID, Money> changes = new TreeMap<>();
+        Map<UUID, Money> changes = new TreeMap<>(LOCK_ORDER);
         for (LineRequest line : lines) {
             changes.merge(line.accountId(), new Money(line.amount(), line.currency()), PostingServiceImpl::plus);
         }
         return changes;
     }
 
-    // Step 3: ascending account id in UUID.compareTo order (which differs from PostgreSQL's uuid order). Any
-    // code that locks balances must use this same order, so two postings never wait on each other.
+    // Step 3: ascending account id, the same order in every posting, so two postings never wait on each other.
     private Map<UUID, Long> lockBalances(Map<UUID, Money> changes) {
-        Map<UUID, Long> current = new TreeMap<>();
+        Map<UUID, Long> current = new HashMap<>();
         for (UUID accountId : changes.keySet()) {
             current.put(accountId, balances.lockBalance(accountId));
         }
@@ -128,7 +133,7 @@ class PostingServiceImpl implements PostingService {
     // Step 4: the new balances, refusing any that would take an account that disallows it below zero.
     private Map<UUID, Long> requireNoOverdraft(Map<UUID, Account> touched, Map<UUID, Money> changes,
             Map<UUID, Long> current) {
-        Map<UUID, Long> updated = new TreeMap<>();
+        Map<UUID, Long> updated = new HashMap<>();
         changes.forEach((accountId, change) -> {
             Money next = plus(new Money(current.get(accountId), change.currency()), change);
             if (next.minor() < 0 && !touched.get(accountId).allowNegative()) {

@@ -20,6 +20,7 @@ import dev.jenishsoni.tally.account.AccountService;
 import dev.jenishsoni.tally.balance.BalanceService;
 import dev.jenishsoni.tally.common.ConflictException;
 import dev.jenishsoni.tally.common.Money;
+import dev.jenishsoni.tally.common.NotFoundException;
 import dev.jenishsoni.tally.common.UnprocessableException;
 import dev.jenishsoni.tally.idempotency.Claim;
 import dev.jenishsoni.tally.idempotency.IdempotencyStore;
@@ -61,14 +62,24 @@ class PostingServiceImpl implements PostingService {
                 new LineRequest(request.fromAccountId(), Math.negateExact(request.amount()), request.currency()),
                 new LineRequest(request.toAccountId(), request.amount(), request.currency()));
         return postOnce(idempotencyKey, "transfer", request,
-                () -> post("transfer", request.description(), request.effectiveAt(), lines));
+                () -> post("transfer", null, request.description(), request.effectiveAt(), lines));
     }
 
     @Override
     @Transactional
     public PostingResult postEntry(String idempotencyKey, EntryRequest request) {
         return postOnce(idempotencyKey, "entry", request,
-                () -> post("entry", request.description(), request.effectiveAt(), request.lines()));
+                () -> post("entry", null, request.description(), request.effectiveAt(), request.lines()));
+    }
+
+    @Override
+    @Transactional
+    public PostingResult reverseEntry(String idempotencyKey, UUID entryId) {
+        return postOnce(idempotencyKey, "reverse", entryId, () -> {
+            JournalEntry original = journal.findEntry(entryId)
+                    .orElseThrow(() -> new NotFoundException("Entry " + entryId + " not found"));
+            return post("reversal", entryId, "Reversal of " + entryId, null, mirrorOf(original));
+        });
     }
 
     // Step 2. A replay returns here without touching any balance, so a retry never moves money twice.
@@ -97,14 +108,22 @@ class PostingServiceImpl implements PostingService {
         return new PostingResult(replay.status(), entry);
     }
 
-    private JournalEntry post(String kind, String description, Instant effectiveAt, List<LineRequest> lines) {
+    private List<LineRequest> mirrorOf(JournalEntry original) {
+        return original.lines().stream()
+                .map(line -> new LineRequest(line.accountId(), negate(line.amount(), line.currency()), line.currency()))
+                .toList();
+    }
+
+    private JournalEntry post(String kind, UUID reversesId, String description, Instant effectiveAt,
+            List<LineRequest> lines) {
         requireBalanced(lines);
         Map<UUID, Account> touched = loadAccounts(lines);
         requireAccountCurrencies(lines, touched);
         Map<UUID, Money> changes = netChangePerAccount(lines);
         Map<UUID, Long> current = lockBalances(changes);
+        requireNotReversedYet(reversesId);
         Map<UUID, Long> updated = requireNoOverdraft(touched, changes, current);
-        JournalEntry entry = insertEntry(kind, description, effectiveAt, lines);
+        JournalEntry entry = insertEntry(kind, reversesId, description, effectiveAt, lines);
         updated.forEach(balances::storeBalance);
         return entry;
     }
@@ -171,6 +190,15 @@ class PostingServiceImpl implements PostingService {
         return current;
     }
 
+    // A reversal locks the same accounts as the entry it undoes, so once those locks are held a competing
+    // reversal has committed and is visible here. Checked before the overdraft test so a second reversal
+    // is always a conflict, whatever the balances now are. The unique index on reverses_id is the backstop.
+    private void requireNotReversedYet(UUID reversesId) {
+        if (reversesId != null && journal.existsReversalOf(reversesId)) {
+            throw new ConflictException("Entry " + reversesId + " was already reversed");
+        }
+    }
+
     // Step 4: the new balances, refusing any that would take an account that disallows it below zero.
     private Map<UUID, Long> requireNoOverdraft(Map<UUID, Account> touched, Map<UUID, Money> changes,
             Map<UUID, Long> current) {
@@ -187,15 +215,16 @@ class PostingServiceImpl implements PostingService {
     }
 
     // Step 5. Lines go in only after the balance locks are held, so line ids on one account follow commit order.
-    private JournalEntry insertEntry(String kind, String description, Instant effectiveAt, List<LineRequest> lines) {
+    private JournalEntry insertEntry(String kind, UUID reversesId, String description, Instant effectiveAt,
+            List<LineRequest> lines) {
         UUID id = UUID.randomUUID();
-        JournalRepository.StoredEntry stored = journal.insertEntry(id, kind, description, effectiveAt);
+        JournalRepository.StoredEntry stored = journal.insertEntry(id, kind, reversesId, description, effectiveAt);
         List<JournalLine> saved = new ArrayList<>();
         for (LineRequest line : lines) {
             long lineId = journal.insertLine(id, line);
             saved.add(new JournalLine(lineId, line.accountId(), line.amount(), line.currency()));
         }
-        return new JournalEntry(id, kind, null, description, stored.effectiveAt(), stored.createdAt(), saved);
+        return new JournalEntry(id, kind, reversesId, description, stored.effectiveAt(), stored.createdAt(), saved);
     }
 
     // Overflow must become a refusal, not a wrapped number or a 500.
@@ -204,6 +233,14 @@ class PostingServiceImpl implements PostingService {
             return a.plus(b);
         } catch (ArithmeticException e) {
             throw new UnprocessableException("Amounts are too large to add exactly");
+        }
+    }
+
+    private static long negate(long amount, String currency) {
+        try {
+            return new Money(amount, currency).negate().minor();
+        } catch (ArithmeticException e) {
+            throw new UnprocessableException("Amount is too large to reverse exactly");
         }
     }
 

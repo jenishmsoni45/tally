@@ -9,3 +9,7 @@ create table idempotency_keys (
 );
 
 grant select, insert, update on idempotency_keys to tally_app;
+
+-- One reversal per entry: a second one fails here even if the service's own check were bypassed.
+create unique index journal_entries_reverses_id_key on journal_entries (reverses_id)
+    where reverses_id is not null;

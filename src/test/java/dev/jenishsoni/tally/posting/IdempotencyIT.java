@@ -132,7 +132,7 @@ class IdempotencyIT {
     }
 
     @Test
-    void aMissingIdempotencyKeyIs400() {
+    void aMissingIdempotencyKeyIs400OnEveryPostingEndpoint() {
         Account a = account(accounts, "CAD", true);
         Account b = account(accounts, "CAD", true);
 
@@ -147,6 +147,9 @@ class IdempotencyIT {
                 .body(Map.of("lines", List.of(
                         Map.of("accountId", a.id(), "amount", -5, "currency", "CAD"),
                         Map.of("accountId", b.id(), "amount", 5, "currency", "CAD"))))
+                .exchange()
+                .expectStatus().isBadRequest();
+        client.post().uri("/entries/{id}/reverse", UUID.randomUUID())
                 .exchange()
                 .expectStatus().isBadRequest();
 

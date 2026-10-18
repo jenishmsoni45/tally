@@ -1,6 +1,9 @@
 package dev.jenishsoni.tally.posting;
 
+import java.util.UUID;
+
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -32,6 +35,12 @@ class PostingController {
     ResponseEntity<JournalEntry> entry(@RequestHeader("Idempotency-Key") @NotBlank @Pattern(regexp = KEY_PATTERN) String key,
             @Valid @RequestBody EntryRequest request) {
         return respond(service.postEntry(key, request));
+    }
+
+    @PostMapping("/entries/{id}/reverse")
+    ResponseEntity<JournalEntry> reverse(@RequestHeader("Idempotency-Key") @NotBlank @Pattern(regexp = KEY_PATTERN) String key,
+            @PathVariable UUID id) {
+        return respond(service.reverseEntry(key, id));
     }
 
     private static ResponseEntity<JournalEntry> respond(PostingResult result) {

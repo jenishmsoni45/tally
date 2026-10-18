@@ -31,6 +31,7 @@ class JournalSchemaIT {
 
     private static final String CHECK_VIOLATION = "23514";
     private static final String FOREIGN_KEY_VIOLATION = "23503";
+    private static final String UNIQUE_VIOLATION = "23505";
     private static final String INSUFFICIENT_PRIVILEGE = "42501";
 
     @Autowired
@@ -139,6 +140,27 @@ class JournalSchemaIT {
                 e -> assertThat(e.getSQLState()).isEqualTo(CHECK_VIOLATION));
     }
 
+    @Test
+    void anEntryCanBeReversedOnlyOnce() {
+        Account a = account(accounts, "CAD", true);
+        Account b = account(accounts, "CAD", true);
+        UUID original = UUID.randomUUID();
+        inTransaction(() -> {
+            insertEntry(jdbc, original);
+            insertLine(jdbc, original, a.id(), 7, "CAD");
+            insertLine(jdbc, original, b.id(), -7, "CAD");
+        });
+        UUID firstReversal = UUID.randomUUID();
+        inTransaction(() -> insertReversal(firstReversal, original, a, b));
+
+        UUID secondReversal = UUID.randomUUID();
+        assertThatThrownBy(() -> inTransaction(() -> insertReversal(secondReversal, original, a, b)))
+                .rootCause().isInstanceOfSatisfying(SQLException.class,
+                        e -> assertThat(e.getSQLState()).isEqualTo(UNIQUE_VIOLATION));
+
+        assertThat(lineCount(secondReversal)).isZero();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "update journal_lines set amount = 1",
@@ -160,6 +182,18 @@ class JournalSchemaIT {
                         e -> assertThat(e.getSQLState()).isEqualTo(INSUFFICIENT_PRIVILEGE));
 
         assertThat(lineCount(entryId)).isEqualTo(2);
+    }
+
+    private void insertReversal(UUID reversalId, UUID reversesId, Account a, Account b) {
+        jdbc.sql("""
+                insert into journal_entries (id, kind, reverses_id, effective_at)
+                values (:id, 'reversal', :reversesId, now())
+                """)
+                .param("id", reversalId)
+                .param("reversesId", reversesId)
+                .update();
+        insertLine(jdbc, reversalId, a.id(), -7, "CAD");
+        insertLine(jdbc, reversalId, b.id(), 7, "CAD");
     }
 
     private void inTransaction(Runnable work) {

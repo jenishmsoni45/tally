@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
 @RestController
@@ -26,19 +25,19 @@ class PostingController {
     }
 
     @PostMapping("/transfers")
-    ResponseEntity<JournalEntry> transfer(@RequestHeader("Idempotency-Key") @NotBlank @Pattern(regexp = KEY_PATTERN) String key,
+    ResponseEntity<JournalEntry> transfer(@RequestHeader("Idempotency-Key") @Pattern(regexp = KEY_PATTERN) String key,
             @Valid @RequestBody TransferRequest request) {
         return respond(service.postTransfer(key, request));
     }
 
     @PostMapping("/entries")
-    ResponseEntity<JournalEntry> entry(@RequestHeader("Idempotency-Key") @NotBlank @Pattern(regexp = KEY_PATTERN) String key,
+    ResponseEntity<JournalEntry> entry(@RequestHeader("Idempotency-Key") @Pattern(regexp = KEY_PATTERN) String key,
             @Valid @RequestBody EntryRequest request) {
         return respond(service.postEntry(key, request));
     }
 
     @PostMapping("/entries/{id}/reverse")
-    ResponseEntity<JournalEntry> reverse(@RequestHeader("Idempotency-Key") @NotBlank @Pattern(regexp = KEY_PATTERN) String key,
+    ResponseEntity<JournalEntry> reverse(@RequestHeader("Idempotency-Key") @Pattern(regexp = KEY_PATTERN) String key,
             @PathVariable UUID id) {
         return respond(service.reverseEntry(key, id));
     }

@@ -2,6 +2,7 @@ package dev.jenishsoni.tally.posting;
 
 import static dev.jenishsoni.tally.LedgerFixtures.account;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,9 @@ class PostingApiIT {
 
     @Autowired
     private AccountService accounts;
+
+    @Autowired
+    private PostingService posting;
 
     @Test
     void aTransferMovesMoneyAndIsVisibleInBalancesAndEntries() {
@@ -145,6 +149,96 @@ class PostingApiIT {
                         + "{\"accountId\":\"" + b.id() + "\",\"amount\":-100.75,\"currency\":\"CAD\"}]}")
                 .exchange()
                 .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void aTransferToTheSameAccountIs400() {
+        Account a = account(accounts, "CAD", true);
+
+        client.post().uri("/transfers")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("fromAccountId", a.id(), "toAccountId", a.id(), "amount", 5, "currency", "CAD"))
+                .exchange()
+                .expectStatus().isBadRequest();
+
+        assertNoLines(a.id());
+    }
+
+    @Test
+    void anUnknownAccountIs404AndLeavesNoTrace() {
+        Account a = account(accounts, "CAD", true);
+
+        client.post().uri("/entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("lines", List.of(line(a.id(), 10), line(UUID.randomUUID(), -10))))
+                .exchange()
+                .expectStatus().isNotFound();
+
+        assertNoLines(a.id());
+    }
+
+    @Test
+    void aLineInTheWrongCurrencyIs422() {
+        Account cad = account(accounts, "CAD", true);
+        Account usd = account(accounts, "USD", true);
+
+        client.post().uri("/entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("lines", List.of(line(cad.id(), 10), line(usd.id(), -10))))
+                .exchange()
+                .expectStatus().isEqualTo(422);
+
+        assertNoLines(cad.id(), usd.id());
+    }
+
+    @Test
+    void amountsThatOverflowAreRefusedNotWrapped() {
+        Account a = account(accounts, "CAD", true);
+        Account b = account(accounts, "CAD", true);
+        Account c = account(accounts, "CAD", true);
+
+        client.post().uri("/entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("lines", List.of(line(a.id(), Long.MAX_VALUE), line(b.id(), Long.MAX_VALUE),
+                        line(c.id(), -2L))))
+                .exchange()
+                .expectStatus().isEqualTo(422);
+
+        assertNoLines(a.id(), b.id(), c.id());
+    }
+
+    @Test
+    void theOverdraftCheckUsesTheNetChangeOfAnAccountNotEachLine() {
+        Account poor = account(accounts, "CAD", false);
+        Account other = account(accounts, "CAD", true);
+
+        client.post().uri("/entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("lines", List.of(line(poor.id(), -50), line(poor.id(), 50),
+                        line(other.id(), 10), line(other.id(), -10))))
+                .exchange()
+                .expectStatus().isCreated();
+        assertBalance(poor.id(), 0);
+
+        client.post().uri("/entries")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(Map.of("lines", List.of(line(poor.id(), -50), line(poor.id(), 30), line(other.id(), 20))))
+                .exchange()
+                .expectStatus().isEqualTo(422);
+        assertBalance(poor.id(), 0);
+        assertBalance(other.id(), 0);
+    }
+
+    @Test
+    void theServiceRefusesATransferThatSkippedTheControllerChecks() {
+        Account a = account(accounts, "CAD", true);
+        Account b = account(accounts, "CAD", true);
+
+        assertThatThrownBy(() -> posting.postTransfer(new TransferRequest(a.id(), a.id(), 5L, "CAD", null, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> posting.postTransfer(new TransferRequest(a.id(), b.id(), -5L, "CAD", null, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertNoLines(a.id(), b.id());
     }
 
     private void assertBalance(UUID accountId, long expected) {

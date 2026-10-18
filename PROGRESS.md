@@ -4,8 +4,8 @@
 | --- | --- | --- | --- | --- |
 | 0 Tools and scaffolding | done, merged 2026-10-17 | phase-0-scaffolding | https://github.com/jenishmsoni45/tally/pull/1 | 10 commits on the branch, 1 on main; CI build passed in 3m13s |
 | 1 Money and accounts | done, merged 2026-10-17 | phase-1-money-accounts | https://github.com/jenishmsoni45/tally/pull/3 | 9 commits on the branch; `./gradlew clean build` passed, 27 tests |
-| 2A Posting: schema, endpoints, tests | done locally, awaiting push approval | phase-2a-posting-schema | | 13 commits on the branch; 51 tests, 47 pass; the 4 failures are the tests PLAN.md says wait for 2B, so CI on this PR is red by design |
-| 2B Posting: the service | not started | | | |
+| 2A Posting: schema, endpoints, tests | done, merged 2026-10-18 | phase-2a-posting-schema | https://github.com/jenishmsoni45/tally/pull/4 | 13 commits on the branch; 51 tests, 47 pass; the 4 failures are the tests PLAN.md says wait for 2B, so CI on this PR is red by design |
+| 2B Posting: the service | done locally, awaiting push approval | phase-2b-posting-service | | 9 commits on the branch; 57 tests, 0 failures; `ConcurrencyIT` passed 20 of 20 runs; the unsorted-locks experiment failed 5 of 5 (below) |
 | 3 Idempotency and reversals | not started | | | |
 | 4 Outbox and Kafka | not started | | | |
 | 5 Reconciliation and observability | not started | | | |
@@ -46,6 +46,18 @@ Phase 2A, 2026-10-17, same machine and tool versions as Phase 0. Conditions: loc
 | Tests that PLAN.md lists as waiting for 2B but pass now | the raw-SQL unbalanced insert and the denied UPDATE, in `JournalSchemaIT`: they test PostgreSQL, not the service |
 | `bootRun` (before the review fixes to V2) | `/actuator/health` UP within 36 s (polled every 3 s); `flyway_schema_history` versions 1, 2, 3 all successful; `tally_app` is not a superuser; all 10 pooled application sessions ran as `tally_app` |
 
+Phase 2B, 2026-10-18, same machine and tool versions as Phase 0. Conditions: local machine, images already pulled.
+
+| What | Result |
+| --- | --- |
+| `./gradlew clean build` (final code) | BUILD SUCCESSFUL in 32s, 57 tests, 0 failures, 0 skipped |
+| Tests by class | `MoneyTest` 16, `AccountApiIT` 10, `JournalSchemaIT` 11, `BalanceApiIT` 5, `TallyApplicationTests` 1, `PostingApiIT` 13, `ConcurrencyIT` 1 |
+| `ConcurrencyIT` in a loop of 20 (`--rerun` each time, final code) | passed 20 of 20. Seed 20261017, 50 threads x 200 transfers. Last run: 8790 succeeded, 1210 refused for insufficient funds. |
+| `ConcurrencyIT` in a loop of 20, before the lock-order comparator fix | passed 20 of 20 (8649 succeeded and 1351 refused in the last run) |
+| Experiment `experiment/unsorted-locks` (balance locks taken in request order, not sorted), `ConcurrencyIT` 5 runs | passed 0 of 5. Last run: 4169 succeeded, 738 refused for funds, so 5093 of 10000 transfers failed with unexpected errors. |
+
+The experiment: the only change was `netChangePerAccount` using a `LinkedHashMap` instead of the sorted `TreeMap`, so `lockBalances` locked accounts in the order the lines arrived. The failures in the last run were PostgreSQL `ERROR: deadlock detected` on `select balance from balances where account_id = ? for update` (for example "Process 80 waits for ShareLock on transaction 847; blocked by process 82. Process 82 waits for ShareLock on transaction 849; blocked by process 80"), plus `CannotCreateTransactionException: Could not open JDBC Connection`. Why: with 10 accounts and 50 threads, one transfer A to B and another B to A each lock their first account and then wait for the other's, and neither can proceed. PostgreSQL breaks each cycle by aborting one transaction. The connection errors are most likely a side effect (aborted and waiting transactions hold pooled connections while the pool of 10 has a 2000 ms timeout); I did not verify that separately. With sorted locking the same test passed 40 of 40 runs. The experiment branch is local only, one commit, and was not merged or pushed.
+
 ## Things that broke and how they were fixed
 
 - Phase 0, the `builder` and `scope-reviewer` agent types were not registered in the session (the session started before `.claude/` was moved to the repo root). Used general-purpose agents with the same rules written into the prompt. Restart Claude Code in this folder so the named agents load.
@@ -61,6 +73,10 @@ Phase 2A, 2026-10-17, same machine and tool versions as Phase 0. Conditions: loc
 - Phase 2A, `PostingApiIT.aLineWithAmountZeroIs400` failed after it had passed: both lines were zero, so the order of the validation errors was not fixed. My test bug; fixed by making only one line invalid, not by loosening the assertion.
 - Phase 2A, the `builder` and `scope-reviewer` agent types were registered this time and the scope review used the real `scope-reviewer`. The security-review skill ran normally (it needed `origin/HEAD`, set in Phase 1).
 
+- Phase 2B, code review (10 findings) and the scope-reviewer's pre-test and final reviews. Fixed: lock order used `UUID.compareTo`, which is signed and differs from PostgreSQL's uuid order, so a later `order by account_id for update` could deadlock against a posting (now `Comparator.comparing(UUID::toString)`); no test covered netting of repeated accounts in one entry or the service's own transfer checks (added); the insufficient-funds message could print a wrong figure (reworded). Declined on purpose: `IllegalArgumentException` for direct-caller preconditions and no service-level empty-lines check (the controller validates, and the deferred triggers are the backstop); the `@AssertTrue` error is reported under the field name `toAccountDifferent`; a "no transaction timeout" claim was wrong (the 5 s default is set in application.yaml); a negative balance on a no-overdraft account cannot happen because `allow_negative` is never updated.
+- Phase 2B, first `PostingApiIT` run after adding the service passed at once. The `builder` agent was not used (the plan says none for this phase); the `scope-reviewer` ran twice (before the tests, as the plan requires, and at the phase end).
+- Phase 2B, the experiment's failed runs took far longer than passing ones: the 5 failed runs did not finish inside a 10-minute foreground limit and were moved to the background.
+
 ## Ideas (out of scope for now)
 
 - Test config starts the whole otel-lgtm stack for every integration-test context; image tags are duplicated between compose.yaml and TestcontainersConfiguration. Revisit when tests get slow (Phase 5 or 6).
@@ -72,11 +88,14 @@ Phase 2A, 2026-10-17, same machine and tool versions as Phase 0. Conditions: loc
 - Trim or restrict account `code` at the edge: `cash` and `cash ` are different codes today.
 - Reject unknown JSON fields and an explicit `allowNegative: null` instead of treating them as false.
 - Narrow the `DuplicateKeyException` catch in `AccountService` to the `code` constraint, and return a dedicated `AccountResponse` record instead of the `Account` record.
-- Phase 2B must reject a transfer whose `fromAccountId` equals `toAccountId`, and must insert an account's lines while holding that account's balance row lock (the paging comment in `BalanceRepository` depends on it).
-- Watch `ConcurrencyIT` in the 20-run loop: 50 threads share a pool of 10 with a 2000 ms connection timeout, and a pool timeout counts as an unexpected failure. If it flakes, show the failure and a diagnosis before changing anything.
 - PLAN.md names `V3__idempotency.sql`, `V4__outbox.sql` and `V5` for later phases, but `V3__app_role.sql` is taken. Later phases should use the next free version number; update PLAN.md through a PR when convenient.
 - `tally_app` has no default privileges. Every later migration must grant it what it needs: Phase 3 `idempotency_keys` needs UPDATE, Phase 4 the outbox needs UPDATE on `published_at` and sequence usage, Phase 5 the drift table needs INSERT.
 - The `tally_app` password is set only when V3 creates the role. Rotate it later with `ALTER ROLE`.
 - Commit `31351ac` bundles two related V2 changes (composite currency foreign key and the empty-entry trigger). Not split: the branch is unpushed, but a rebase needs approval.
 - Extras added beyond the literal 2A task list, all covered by tests: `V3__app_role.sql` as its own migration, the `(id, currency)` unique key and composite foreign key, the empty-entry trigger, the `journal_lines(entry_id)` index (the balance trigger needs it), the `NonZero` constraint, `UnprocessableException`, `BalanceApiIT`, `JournalSchemaIT`, `LedgerFixtures`.
-- Until 2B, `POST /transfers` and `POST /entries` answer a bare 500 (not a ProblemDetail). The catch-all 500 handler idea above covers it.
+- Any code that locks balances (Phase 3 reversals, Phase 5 reconcile if it ever locks) must use the same order as `PostingServiceImpl.LOCK_ORDER` (PostgreSQL uuid order). `order by account_id for update` in SQL matches it. No test pins this order yet.
+- A posting does one query per account and per line (account lookup, lock, balance update, line insert; up to 100 lines). Batching would shorten lock hold time. Measure in Phase 8 before changing.
+- `requireBalanced` sums in request order, so a valid entry whose running sum overflows (for example MAX, MAX, -MAX, -MAX) is refused with a 422. Safe, but could be summed differently if it ever matters.
+- `BalanceRepository.updateBalance` ignores the updated-row count. The row is locked in the same transaction so zero rows is impossible today.
+- The log line for a posting has the entry id but not the idempotency key; add the key in Phase 3. Refused postings log nothing.
+- Commit `4da8e9c` bundles the service-side transfer check, a lock-order comment that `3f4dbcb` later corrected, and a reworded message. Not split: a rebase needs approval.

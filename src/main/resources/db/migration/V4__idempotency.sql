@@ -13,3 +13,6 @@ grant select, insert, update on idempotency_keys to tally_app;
 -- One reversal per entry: a second one fails here even if the service's own check were bypassed.
 create unique index journal_entries_reverses_id_key on journal_entries (reverses_id)
     where reverses_id is not null;
+
+-- Balance as of a time reads the entries created at or before it.
+create index journal_entries_created_at_idx on journal_entries (created_at);

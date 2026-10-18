@@ -2,6 +2,7 @@ package dev.jenishsoni.tally.balance;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -49,6 +50,19 @@ class BalanceRepository {
                 .param("balance", balance)
                 .param("accountId", accountId)
                 .update();
+    }
+
+    long sumLinesCreatedAtOrBefore(UUID accountId, Instant asOf) {
+        return jdbc.sql("""
+                select coalesce(sum(l.amount), 0)
+                from journal_lines l
+                join journal_entries e on e.id = l.entry_id
+                where l.account_id = :accountId and e.created_at <= :asOf
+                """)
+                .param("accountId", accountId)
+                .param("asOf", OffsetDateTime.ofInstant(asOf, ZoneOffset.UTC))
+                .query(Long.class)
+                .single();
     }
 
     // Paging on line id is gap-free because posting inserts an account's lines while holding that

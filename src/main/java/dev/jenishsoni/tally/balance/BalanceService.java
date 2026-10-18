@@ -1,5 +1,6 @@
 package dev.jenishsoni.tally.balance;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -27,6 +28,13 @@ public class BalanceService {
         BalanceRepository.StoredBalance stored = repository.findBalance(accountId)
                 .orElseThrow(() -> new NotFoundException("Account " + accountId + " has no balance row"));
         return new BalanceResponse(accountId, stored.balance(), account.currency(), stored.updatedAt());
+    }
+
+    /** The sum of the account's lines in entries created at or before asOf, which is what the balance was then. */
+    public AsOfBalanceResponse balanceAsOf(UUID accountId, Instant asOf) {
+        Account account = accounts.get(accountId);
+        return new AsOfBalanceResponse(accountId, repository.sumLinesCreatedAtOrBefore(accountId, asOf),
+                account.currency(), asOf);
     }
 
     /**

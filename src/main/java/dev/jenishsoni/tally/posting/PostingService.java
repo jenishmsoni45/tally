@@ -12,7 +12,7 @@ import java.util.UUID;
  * <li>check that no account that disallows negative balances would go below zero;</li>
  * <li>insert the entry and its lines;</li>
  * <li>update the balances;</li>
- * <li>insert the outbox row (from Phase 4);</li>
+ * <li>insert the outbox row, which a relay later publishes to Kafka;</li>
  * <li>save the response for idempotent replay;</li>
  * <li>commit.</li>
  * </ol>

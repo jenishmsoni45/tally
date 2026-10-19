@@ -53,9 +53,9 @@ spring:
         # The broker drops the producer's own retries of a batch it already wrote. It cannot drop the
         # outbox relay sending a batch again after a rollback; consumers dedupe on entry_id for that.
         "[enable.idempotence]": true
-        # Starting values, not measurements. The relay waits for acks inside a 5 s database transaction,
-        # so a send must succeed or fail well within that; a failed batch rolls back and the next run
-        # retries it. Kafka requires delivery.timeout.ms >= linger.ms + request.timeout.ms.
+        # Starting values, not measurements. The outbox relay waits at most 4 s for acks while it holds its
+        # rows locked, so a send must succeed or fail within that; a failed batch rolls back and the next
+        # run retries it. Kafka requires delivery.timeout.ms >= linger.ms + request.timeout.ms.
         "[delivery.timeout.ms]": 3000
         "[request.timeout.ms]": 2000
         # How long send() itself may block waiting for topic metadata or buffer space.

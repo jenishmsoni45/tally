@@ -34,8 +34,8 @@ import dev.jenishsoni.tally.posting.TransferRequest;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Every posted entry reaches a Kafka consumer once, within seconds, and exactly as the API returned
- * it, even with two relays draining the outbox at the same time.
+ * Every posted entry reaches a Kafka consumer once, within seconds, and with the same content the API
+ * returned, even with two relays draining the outbox at the same time.
  */
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest

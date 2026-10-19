@@ -100,7 +100,7 @@ class PostingServiceImpl implements PostingService {
         };
     }
 
-    // Steps 7 and 8, from one serialization, so Kafka announces the entry exactly as the caller and any retry see it.
+    // Steps 7 and 8 store one serialization, so Kafka, the caller and any retry all get the same entry.
     private PostingResult announceAndSave(String idempotencyKey, JournalEntry entry) {
         String body = json.writeValueAsString(entry);
         outbox.write(entry.id(), ENTRY_POSTED, body);

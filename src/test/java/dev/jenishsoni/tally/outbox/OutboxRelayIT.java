@@ -94,6 +94,7 @@ class OutboxRelayIT {
 
         try (EntryIdCollector collector = EntryIdCollector.fromNow(consumers)) {
             List<UUID> posted;
+            Duration arrival;
             try (ExecutorService executor = Executors.newSingleThreadExecutor()) {
                 // A tight loop keeps the second relay busy whenever rows exist, so every tick of the
                 // scheduled relay meets it on the same rows.
@@ -104,7 +105,9 @@ class OutboxRelayIT {
                 });
                 try {
                     posted = postTransfers(TRANSFERS);
+                    long lastPost = System.nanoTime();
                     collector.awaitIds(posted, DELIVERY_DEADLINE);
+                    arrival = Duration.ofNanos(System.nanoTime() - lastPost);
                 } finally {
                     // Also on failure, or closing the executor would wait for the loop forever.
                     stop.set(true);
@@ -113,9 +116,11 @@ class OutboxRelayIT {
             }
             awaitPublished(posted);
             collector.readToEnd(DELIVERY_DEADLINE);
-            System.out.println("OutboxRelayIT second relay published " + publishedBySecond + " rows");
+            System.out.println("OutboxRelayIT with two relays arrived in " + arrival.toMillis()
+                    + " ms after the last post; the second relay published " + publishedBySecond + " rows");
 
             assertThat(collector.ids()).containsAll(posted);
+            assertThat(arrival).isLessThanOrEqualTo(DELIVERY_DEADLINE);
             assertThat(publishedBySecond).as("rows published by the second relay").hasPositiveValue();
             // The point of the test: without row locking both relays would send the same rows.
             assertThat(collector.duplicatesIgnored()).isZero();

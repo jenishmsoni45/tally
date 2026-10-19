@@ -25,6 +25,7 @@ import dev.jenishsoni.tally.common.UnprocessableException;
 import dev.jenishsoni.tally.idempotency.Claim;
 import dev.jenishsoni.tally.idempotency.IdempotencyStore;
 import dev.jenishsoni.tally.idempotency.RequestHash;
+import dev.jenishsoni.tally.outbox.OutboxWriter;
 import tools.jackson.databind.json.JsonMapper;
 
 @Service
@@ -39,18 +40,23 @@ class PostingServiceImpl implements PostingService {
     // Only successful postings are saved; a refused one rolls back with its key, which can then be retried.
     private static final int CREATED = 201;
 
+    // Every posting announces the same event type; the entry's kind is in the payload.
+    private static final String ENTRY_POSTED = "entry.posted";
+
     private final AccountService accounts;
     private final BalanceService balances;
     private final JournalRepository journal;
     private final IdempotencyStore idempotency;
+    private final OutboxWriter outbox;
     private final JsonMapper json;
 
     PostingServiceImpl(AccountService accounts, BalanceService balances, JournalRepository journal,
-            IdempotencyStore idempotency, JsonMapper json) {
+            IdempotencyStore idempotency, OutboxWriter outbox, JsonMapper json) {
         this.accounts = accounts;
         this.balances = balances;
         this.journal = journal;
         this.idempotency = idempotency;
+        this.outbox = outbox;
         this.json = json;
     }
 
@@ -87,16 +93,18 @@ class PostingServiceImpl implements PostingService {
             Supplier<JournalEntry> posting) {
         String requestHash = RequestHash.of(operation, json.writeValueAsString(request));
         return switch (idempotency.claim(idempotencyKey, requestHash)) {
-            case Claim.Claimed _ -> saveResponse(idempotencyKey, posting.get());
+            case Claim.Claimed _ -> announceAndSave(idempotencyKey, posting.get());
             case Claim.Replay replay -> replayed(idempotencyKey, replay);
             case Claim.Conflict _ ->
                 throw new ConflictException("Idempotency-Key was already used for a different request");
         };
     }
 
-    // Step 8.
-    private PostingResult saveResponse(String idempotencyKey, JournalEntry entry) {
-        idempotency.saveResponse(idempotencyKey, CREATED, json.writeValueAsString(entry));
+    // Steps 7 and 8, from one serialization, so Kafka announces the entry exactly as the caller and any retry see it.
+    private PostingResult announceAndSave(String idempotencyKey, JournalEntry entry) {
+        String body = json.writeValueAsString(entry);
+        outbox.write(entry.id(), ENTRY_POSTED, body);
+        idempotency.saveResponse(idempotencyKey, CREATED, body);
         log.info("Posted entry {} kind={} lines={} idempotencyKey={}",
                 entry.id(), entry.kind(), entry.lines().size(), idempotencyKey);
         return new PostingResult(CREATED, entry);

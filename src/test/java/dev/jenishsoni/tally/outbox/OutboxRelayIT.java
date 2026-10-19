@@ -116,6 +116,7 @@ class OutboxRelayIT {
             System.out.println("OutboxRelayIT second relay published " + publishedBySecond + " rows");
 
             assertThat(collector.ids()).containsAll(posted);
+            assertThat(publishedBySecond).as("rows published by the second relay").hasPositiveValue();
             // The point of the test: without row locking both relays would send the same rows.
             assertThat(collector.duplicatesIgnored()).isZero();
         }

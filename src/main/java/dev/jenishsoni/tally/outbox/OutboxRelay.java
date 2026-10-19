@@ -16,6 +16,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -33,18 +34,23 @@ class OutboxRelay {
     // Bounds how long one transaction holds its row locks and how many rows one failure sends again.
     static final int BATCH_SIZE = 100;
 
-    // Longer than the producer's 3 s delivery timeout, so Kafka's own error normally arrives first, and
-    // shorter than the 5 s transaction timeout, so the batch fails before its transaction does.
+    // Longer than the producer's 3 s delivery timeout, so Kafka's own error normally arrives first.
     private static final Duration ACK_TIMEOUT = Duration.ofSeconds(4);
+
+    // Starting value, not a measurement: the ack wait plus two indexed statements, with room for a slow
+    // database, so a batch Kafka fully acknowledged is not rolled back and sent again for lack of time.
+    // Its own value rather than the posting default, which is sized for callers waiting on a response.
+    private static final Duration TRANSACTION_TIMEOUT = Duration.ofSeconds(10);
 
     private final JdbcClient jdbc;
     private final KafkaTemplate<String, String> kafka;
     private final TransactionTemplate transaction;
 
-    OutboxRelay(JdbcClient jdbc, KafkaTemplate<String, String> kafka, TransactionTemplate transaction) {
+    OutboxRelay(JdbcClient jdbc, KafkaTemplate<String, String> kafka, PlatformTransactionManager transactions) {
         this.jdbc = jdbc;
         this.kafka = kafka;
-        this.transaction = transaction;
+        this.transaction = new TransactionTemplate(transactions);
+        this.transaction.setTimeout((int) TRANSACTION_TIMEOUT.toSeconds());
     }
 
     // Starting value from the plan: an idle tick is one indexed query, and an entry reaches Kafka

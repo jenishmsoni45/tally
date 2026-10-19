@@ -22,7 +22,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import dev.jenishsoni.tally.TestcontainersConfiguration;
 import dev.jenishsoni.tally.account.Account;
@@ -58,7 +58,7 @@ class OutboxRelayIT {
     private KafkaTemplate<String, String> kafka;
 
     @Autowired
-    private TransactionTemplate transaction;
+    private PlatformTransactionManager transactions;
 
     @Autowired
     private ConsumerFactory<String, String> consumers;
@@ -88,7 +88,7 @@ class OutboxRelayIT {
 
     @Test
     void twoRelaysRunningAtOnceStillDeliverEachEntryOnce() throws Exception {
-        OutboxRelay second = new OutboxRelay(jdbc, kafka, transaction);
+        OutboxRelay second = new OutboxRelay(jdbc, kafka, transactions);
         AtomicBoolean stop = new AtomicBoolean();
         AtomicInteger publishedBySecond = new AtomicInteger();
 

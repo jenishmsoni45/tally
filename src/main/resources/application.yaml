@@ -69,3 +69,10 @@ management:
   endpoint:
     health:
       show-details: never
+
+tally:
+  admin:
+    # Admin endpoints (/admin/**) take this key as a Bearer token. There is no default: while it is
+    # unset, every admin request is refused. Set TALLY_ADMIN_API_KEY to a random value of at least
+    # 32 characters, for example `openssl rand -hex 32`.
+    api-key: ${TALLY_ADMIN_API_KEY:}

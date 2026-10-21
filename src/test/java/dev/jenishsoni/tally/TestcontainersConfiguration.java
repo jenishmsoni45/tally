@@ -12,6 +12,9 @@ import org.testcontainers.utility.DockerImageName;
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
 
+    /** Throwaway admin API key, only for the app started against these test containers. */
+    public static final String ADMIN_API_KEY = "throwaway-test-admin-key-not-a-secret";
+
     // Throwaway password for the tally_app role in a container that is deleted after the run.
     private static final String APP_PASSWORD = "tally_app_test";
 
@@ -46,6 +49,12 @@ public class TestcontainersConfiguration {
             registry.add("spring.flyway.password", postgres::getPassword);
             registry.add("spring.flyway.placeholders.appPassword", () -> APP_PASSWORD);
         };
+    }
+
+    // Set here rather than per test class, so every test shares one cached context and one set of containers.
+    @Bean
+    DynamicPropertyRegistrar adminProperties() {
+        return registry -> registry.add("tally.admin.api-key", () -> ADMIN_API_KEY);
     }
 
 }

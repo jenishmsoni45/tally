@@ -7,8 +7,8 @@
 | 2A Posting: schema, endpoints, tests | done, merged 2026-10-18 | phase-2a-posting-schema | https://github.com/jenishmsoni45/tally/pull/4 | 13 commits on the branch; 51 tests, 47 pass; the 4 failures are the tests PLAN.md says wait for 2B, so CI on this PR is red by design |
 | 2B Posting: the service | done, merged 2026-10-18 | phase-2b-posting-service | https://github.com/jenishmsoni45/tally/pull/5 | 9 commits on the branch; 57 tests, 0 failures; `ConcurrencyIT` passed 20 of 20 runs; the unsorted-locks experiment failed 5 of 5 (below) |
 | 3 Idempotency and reversals | done, merged 2026-10-18 | phase-3-idempotency-reversals | https://github.com/jenishmsoni45/tally/pull/6 | 13 commits on the branch; 88 tests, 0 failures; the same-key test passed 20 of 20 runs (below) |
-| 4 Outbox and Kafka | done locally, awaiting push approval | phase-4-outbox-kafka | | 10 commits on the branch (with this one); 91 tests, 0 failures; `OutboxRelayIT` passed 10 of 10 runs (below) |
-| 5 Reconciliation and observability | not started | | | |
+| 4 Outbox and Kafka | done, merged 2026-10-19 | phase-4-outbox-kafka | https://github.com/jenishmsoni45/tally/pull/7 | 10 commits on the branch; 91 tests, 0 failures; `OutboxRelayIT` passed 10 of 10 runs (below) |
+| 5 Reconciliation and observability | in progress | phase-5-reconcile-observability | | |
 | 6 Failure testing | not started | | | |
 | 7 Random simulation tests | not started | | | |
 | 8 Load test and one improvement | not started | | | |

@@ -8,8 +8,10 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import org.apache.kafka.clients.producer.RecordMetadata;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.KafkaException;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -18,6 +20,10 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+
+import dev.jenishsoni.tally.common.TelemetryKeys;
+import io.micrometer.observation.Observation;
+import io.micrometer.observation.ObservationRegistry;
 
 /**
  * Publishes outbox rows to Kafka at least once: a batch whose acks or commit fail is sent again, so
@@ -45,12 +51,15 @@ class OutboxRelay {
     private final JdbcClient jdbc;
     private final KafkaTemplate<String, String> kafka;
     private final TransactionTemplate transaction;
+    private final ObservationRegistry observations;
 
-    OutboxRelay(JdbcClient jdbc, KafkaTemplate<String, String> kafka, PlatformTransactionManager transactions) {
+    OutboxRelay(JdbcClient jdbc, KafkaTemplate<String, String> kafka, PlatformTransactionManager transactions,
+            ObservationRegistry observations) {
         this.jdbc = jdbc;
         this.kafka = kafka;
         this.transaction = new TransactionTemplate(transactions);
         this.transaction.setTimeout((int) TRANSACTION_TIMEOUT.toSeconds());
+        this.observations = observations;
     }
 
     // Starting value from the plan: an idle tick is one indexed query, and an entry reaches Kafka
@@ -75,9 +84,21 @@ class OutboxRelay {
         if (events.isEmpty()) {
             return 0;
         }
-        awaitAcks(send(events));
-        markPublished(events);
+        // Scheduled-task observations are turned off in application.yaml, so only a batch with rows makes a
+        // trace; an idle relay would otherwise make five empty traces a second. The Kafka send spans become
+        // children of this one and carry the entry_id (EntryIdSendConvention), and the "Published entry"
+        // lines carry this trace's id.
+        Observation.createNotStarted("ledger.outbox.publish", observations)
+                .contextualName("outbox publish")
+                .observe(() -> publish(events));
         return events.size();
+    }
+
+    private void publish(List<PendingEvent> events) {
+        List<CompletableFuture<SendResult<String, String>>> acks = send(events);
+        awaitAcks(acks);
+        markPublished(events);
+        logPublished(events, acks);
     }
 
     private List<PendingEvent> lockUnpublished() {
@@ -122,6 +143,20 @@ class OutboxRelay {
         jdbc.sql("update outbox set published_at = now() where id in (:ids)")
                 .param("ids", events.stream().map(PendingEvent::id).toList())
                 .update();
+    }
+
+    // acks is in the order of events, and every ack has completed once awaitAcks returns. A batch sent again
+    // after a rollback is logged as published again, which it was: delivery is at least once.
+    private static void logPublished(List<PendingEvent> events,
+            List<CompletableFuture<SendResult<String, String>>> acks) {
+        for (int i = 0; i < events.size(); i++) {
+            UUID entryId = events.get(i).entryId();
+            RecordMetadata metadata = acks.get(i).resultNow().getRecordMetadata();
+            try (MDC.MDCCloseable _ = MDC.putCloseable(TelemetryKeys.ENTRY_ID, entryId.toString())) {
+                log.info("Published entry {} to {} partition {} offset {}",
+                        entryId, metadata.topic(), metadata.partition(), metadata.offset());
+            }
+        }
     }
 
     private record PendingEvent(long id, UUID entryId, String payload) {

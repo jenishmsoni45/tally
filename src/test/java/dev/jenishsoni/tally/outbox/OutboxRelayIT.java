@@ -31,6 +31,7 @@ import dev.jenishsoni.tally.posting.JournalEntry;
 import dev.jenishsoni.tally.posting.PostingResult;
 import dev.jenishsoni.tally.posting.PostingService;
 import dev.jenishsoni.tally.posting.TransferRequest;
+import io.micrometer.observation.ObservationRegistry;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -66,6 +67,9 @@ class OutboxRelayIT {
     @Autowired
     private JsonMapper json;
 
+    @Autowired
+    private ObservationRegistry observations;
+
     @Test
     void fiveHundredTransfersReachTheConsumerOnceEachWithinTenSeconds() {
         try (EntryIdCollector collector = EntryIdCollector.fromNow(consumers)) {
@@ -88,7 +92,7 @@ class OutboxRelayIT {
 
     @Test
     void twoRelaysRunningAtOnceStillDeliverEachEntryOnce() throws Exception {
-        OutboxRelay second = new OutboxRelay(jdbc, kafka, transactions);
+        OutboxRelay second = new OutboxRelay(jdbc, kafka, transactions, observations);
         AtomicBoolean stop = new AtomicBoolean();
         AtomicInteger publishedBySecond = new AtomicInteger();
 

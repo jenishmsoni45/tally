@@ -60,6 +60,10 @@ spring:
         "[request.timeout.ms]": 2000
         # How long send() itself may block waiting for topic metadata or buffer space.
         "[max.block.ms]": 1000
+    template:
+      # Each send gets a producer span that ends when Kafka acknowledges the record; the outbox
+      # tags it with the entry_id.
+      observation-enabled: true
 
 management:
   endpoints:
@@ -69,6 +73,16 @@ management:
   endpoint:
     health:
       show-details: never
+  tracing:
+    sampling:
+      # Every posting and every publish is traced, so any entry can be followed by its id. Starting
+      # value, not a measurement; Phase 8 measures the cost, and a busy production system would sample.
+      probability: 1.0
+  observations:
+    enable:
+      # Spring observes every @Scheduled run, and the relay runs every 200 ms, which would make five
+      # empty traces a second. The relay starts its own observation when it has rows to publish.
+      "[tasks.scheduled.execution]": false
   metrics:
     distribution:
       percentiles-histogram:

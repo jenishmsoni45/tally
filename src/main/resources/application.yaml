@@ -69,6 +69,13 @@ management:
   endpoint:
     health:
       show-details: never
+  metrics:
+    distribution:
+      percentiles-histogram:
+        # Buckets let the dashboard compute p95 and p99, which a client-side percentile cannot do
+        # across instances.
+        "[ledger.posting.duration]": true
+        "[ledger.lock.wait]": true
 
 tally:
   admin:

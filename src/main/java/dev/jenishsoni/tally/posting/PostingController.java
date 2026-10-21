@@ -19,27 +19,29 @@ class PostingController {
     private static final String KEY_PATTERN = "[\\x21-\\x7E]{1,255}";
 
     private final PostingService service;
+    private final PostingTelemetry telemetry;
 
-    PostingController(PostingService service) {
+    PostingController(PostingService service, PostingTelemetry telemetry) {
         this.service = service;
+        this.telemetry = telemetry;
     }
 
     @PostMapping("/transfers")
     ResponseEntity<JournalEntry> transfer(@RequestHeader("Idempotency-Key") @Pattern(regexp = KEY_PATTERN) String key,
             @Valid @RequestBody TransferRequest request) {
-        return respond(service.postTransfer(key, request));
+        return respond(telemetry.observe("transfer", key, () -> service.postTransfer(key, request)));
     }
 
     @PostMapping("/entries")
     ResponseEntity<JournalEntry> entry(@RequestHeader("Idempotency-Key") @Pattern(regexp = KEY_PATTERN) String key,
             @Valid @RequestBody EntryRequest request) {
-        return respond(service.postEntry(key, request));
+        return respond(telemetry.observe("entry", key, () -> service.postEntry(key, request)));
     }
 
     @PostMapping("/entries/{id}/reverse")
     ResponseEntity<JournalEntry> reverse(@RequestHeader("Idempotency-Key") @Pattern(regexp = KEY_PATTERN) String key,
             @PathVariable UUID id) {
-        return respond(service.reverseEntry(key, id));
+        return respond(telemetry.observe("reverse", key, () -> service.reverseEntry(key, id)));
     }
 
     private static ResponseEntity<JournalEntry> respond(PostingResult result) {

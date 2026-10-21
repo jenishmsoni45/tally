@@ -10,8 +10,6 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.function.Supplier;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,8 +28,6 @@ import tools.jackson.databind.json.JsonMapper;
 
 @Service
 class PostingServiceImpl implements PostingService {
-
-    private static final Logger log = LoggerFactory.getLogger(PostingServiceImpl.class);
 
     // Ascending account id as PostgreSQL orders uuid (unsigned bytes). UUID.compareTo is signed and would
     // differ, which would let a later `order by account_id for update` deadlock against a posting.
@@ -94,7 +90,7 @@ class PostingServiceImpl implements PostingService {
         String requestHash = RequestHash.of(operation, json.writeValueAsString(request));
         return switch (idempotency.claim(idempotencyKey, requestHash)) {
             case Claim.Claimed _ -> announceAndSave(idempotencyKey, posting.get());
-            case Claim.Replay replay -> replayed(idempotencyKey, replay);
+            case Claim.Replay replay -> replayed(replay);
             case Claim.Conflict _ ->
                 throw new ConflictException("Idempotency-Key was already used for a different request");
         };
@@ -105,15 +101,12 @@ class PostingServiceImpl implements PostingService {
         String body = json.writeValueAsString(entry);
         outbox.write(entry.id(), ENTRY_POSTED, body);
         idempotency.saveResponse(idempotencyKey, CREATED, body);
-        log.info("Posted entry {} kind={} lines={} idempotencyKey={}",
-                entry.id(), entry.kind(), entry.lines().size(), idempotencyKey);
-        return new PostingResult(CREATED, entry);
+        return new PostingResult(CREATED, entry, false);
     }
 
-    private PostingResult replayed(String idempotencyKey, Claim.Replay replay) {
+    private PostingResult replayed(Claim.Replay replay) {
         JournalEntry entry = json.readValue(replay.body(), JournalEntry.class);
-        log.info("Replayed entry {} idempotencyKey={}", entry.id(), idempotencyKey);
-        return new PostingResult(replay.status(), entry);
+        return new PostingResult(replay.status(), entry, true);
     }
 
     private List<LineRequest> mirrorOf(JournalEntry original) {

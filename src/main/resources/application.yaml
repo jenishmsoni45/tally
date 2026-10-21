@@ -65,6 +65,13 @@ spring:
       # tags it with the entry_id.
       observation-enabled: true
 
+logging:
+  structured:
+    format:
+      # One JSON object per line, with the MDC (traceId, spanId, entry_id, idempotency_key) as fields.
+      # logback-spring.xml also sends every line over OTLP.
+      console: ecs
+
 management:
   endpoints:
     web:

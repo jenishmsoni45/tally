@@ -96,11 +96,18 @@ machine_facts() {
   fi
 }
 
+# Results of earlier runs stay untracked until they are committed, so they do not count as a change to what ran.
+uncommitted_changes() {
+  if [[ -n $(git status --porcelain -- . ':(exclude)load/results') ]]; then
+    echo ', with uncommitted changes'
+  fi
+}
+
 write_conditions() {
   {
     echo "started: $DAY $TIME"
     echo "mode: $MODE$([[ $MODE == saturation ]] && echo ", steps of $STEPS VUs, $STEP_DURATION each")"
-    echo "commit: $(git rev-parse --short HEAD)$(git diff --quiet HEAD -- || echo ', with uncommitted changes')"
+    echo "commit: $(git rev-parse --short HEAD)$(uncommitted_changes)"
     machine_facts
     echo "java: $(java -version 2>&1 | head -1)"
     echo "k6: $(k6 version | head -1)"

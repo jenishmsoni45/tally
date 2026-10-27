@@ -37,8 +37,16 @@ sealed interface Operation {
     record Reverse(int entry) implements Operation {
     }
 
-    /** Sends the request of an earlier operation of the same run, never itself a Retry, again with the same key and body. */
+    /** Sends the request of an earlier step of the same run, never itself a Retry, again with the same key and body. */
     record Retry(int operation) implements Operation {
+    }
+
+    /**
+     * Sends a new posting with the idempotency key of an earlier posting step, as a client that reuses a key by
+     * mistake. If that key saved a different request, the API answers 409; if the earlier posting was refused, its
+     * key was never saved, and this request posts under it.
+     */
+    record ReuseKey(int operation, Transfer request) implements Operation {
     }
 
     record Line(int account, long amount, String currency) {

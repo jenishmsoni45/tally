@@ -140,10 +140,13 @@ class SimulationIT {
 
         private void playStep() {
             Operation operation = generator.next(model);
-            // A retry sends the earlier request unchanged and asks the model the same question again.
-            Request request = operation instanceof Operation.Retry retry
-                    ? requests.get(retry.operation())
-                    : request(operation);
+            // A retry sends the earlier request unchanged and asks the model the same question again; a reused key
+            // sends a new request under the earlier request's key.
+            Request request = switch (operation) {
+                case Operation.Retry retry -> requests.get(retry.operation());
+                case Operation.ReuseKey reuse -> request(reuse.request(), requests.get(reuse.operation()).key());
+                default -> request(operation, "sim-" + RUN + "-" + seed + "-" + step);
+            };
             requests.add(request);
             Outcome expected = request.expect().get();
             Answer answer = send(request);
@@ -153,9 +156,8 @@ class SimulationIT {
             checkBalances();
         }
 
-        // The step's name is unique in the test run, so it serves as an account code or an idempotency key.
-        private Request request(Operation operation) {
-            String name = "sim-" + RUN + "-" + seed + "-" + step;
+        // A step's own name is unique in the test run, so it serves as an account code or an idempotency key.
+        private Request request(Operation operation, String name) {
             return switch (operation) {
                 case Operation.OpenAccount open -> new Request(operation, "/accounts", null,
                         Map.of("code", name, "currency", open.currency(), "allowNegative", open.allowNegative()),
@@ -170,7 +172,8 @@ class SimulationIT {
                 case Operation.Reverse reverse -> new Request(operation,
                         "/entries/" + entryId(reverse.entry()) + "/reverse", name, null,
                         () -> model.reverse(name, reverse));
-                case Operation.Retry _ -> throw new IllegalArgumentException("A retry sends an earlier request");
+                case Operation.Retry _, Operation.ReuseKey _ ->
+                    throw new IllegalArgumentException("A retry or a reused key sends another step's request");
             };
         }
 

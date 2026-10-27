@@ -11,7 +11,8 @@ import dev.jenishsoni.tally.simulation.LedgerModel.ModelEntry;
 
 /**
  * Chooses each operation of a simulation run in the plan's mix: open account 5%, transfer 60%, multi-line entry
- * 15%, reverse 10% and retry an earlier request 10%. Most operations are ones the ledger accepts, so balances keep
+ * 15%, reverse 10% and retry an earlier request 10%, a fifth of those retries reusing an earlier posting's key for a
+ * different request. Most operations are ones the ledger accepts, so balances keep
  * moving; a few percent of each kind are built to be refused (an unknown account or entry, a wrong currency,
  * missing funds, lines that do not balance, a second reversal), so every rule the model copies is exercised. Every
  * choice comes from one {@link Random} and the model's state, so the same seed against the same model gives the
@@ -53,6 +54,10 @@ final class OperationGenerator {
     private static final int UNKNOWN_ENTRY_PERCENT = 5;
     private static final int SECOND_REVERSAL_PERCENT = 15;
 
+    // Of the retries: the client that reuses a key for a different request, the one way to provoke the 409 that
+    // keeps a key from moving money for two requests.
+    private static final int REUSED_KEY_PERCENT = 20;
+
     // Shapes of entries the ledger accepts, in percent of entries: passing money on through an account, both
     // currencies in one entry, and the most lines the API accepts. A pass-through can also be refused, see below.
     private static final int PASS_THROUGH_PERCENT = 10;
@@ -73,6 +78,9 @@ final class OperationGenerator {
     // test numbers its requests; retries themselves are left out, as they only repeat another step.
     private final List<Integer> retryable = new ArrayList<>();
 
+    // The posting steps whose key a ReuseKey may take. A ReuseKey step is left out, as its key is another step's.
+    private final List<Integer> postings = new ArrayList<>();
+
     private int step;
 
     OperationGenerator(long seed) {
@@ -84,6 +92,10 @@ final class OperationGenerator {
         Operation operation = choose(model.accounts(), model.entries());
         if (!(operation instanceof Operation.Retry)) {
             retryable.add(step);
+        }
+        if (operation instanceof Operation.Transfer || operation instanceof Operation.Entry
+                || operation instanceof Operation.Reverse) {
+            postings.add(step);
         }
         step++;
         return operation;
@@ -131,8 +143,12 @@ final class OperationGenerator {
         return entries.isEmpty() ? transferOrOpenAccount(accounts) : reverse(entries);
     }
 
-    // Only the first step has no earlier request to send again; it is a transfer, or opens an account instead.
+    // Only the first step has no earlier request to send again; it is a transfer, or opens an account instead. A
+    // posting step implies two accounts in one currency, so the new transfer of a reused key can always be made.
     private Operation retryOrTransfer(List<ModelAccount> accounts) {
+        if (!postings.isEmpty() && chance(REUSED_KEY_PERCENT)) {
+            return new Operation.ReuseKey(pick(postings), transfer(accounts, pairedCurrencies(accounts)));
+        }
         return retryable.isEmpty() ? transferOrOpenAccount(accounts) : new Operation.Retry(pick(retryable));
     }
 

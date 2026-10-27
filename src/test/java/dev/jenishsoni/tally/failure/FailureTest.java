@@ -159,8 +159,12 @@ abstract class FailureTest {
     @AfterEach
     void restoreLinksAndCheckLedger(TestInfo test) throws IOException {
         try {
-            DATABASE_LINK.restore();
-            KAFKA_LINK.restore();
+            // Each link is restored even if the other one fails to, so no later test inherits a toxic.
+            try {
+                DATABASE_LINK.restore();
+            } finally {
+                KAFKA_LINK.restore();
+            }
             Set<UUID> entries = entriesOnTestAccounts();
             consumer.awaitIds(entries, DELIVERY_DEADLINE);
             System.out.println(getClass().getSimpleName() + "." + test.getTestMethod().orElseThrow().getName()

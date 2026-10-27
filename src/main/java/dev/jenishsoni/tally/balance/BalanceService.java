@@ -11,16 +11,22 @@ import org.springframework.transaction.annotation.Transactional;
 import dev.jenishsoni.tally.account.Account;
 import dev.jenishsoni.tally.account.AccountService;
 import dev.jenishsoni.tally.common.NotFoundException;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 
 @Service
 public class BalanceService {
 
     private final AccountService accounts;
     private final BalanceRepository repository;
+    private final Timer lockWait;
 
-    BalanceService(AccountService accounts, BalanceRepository repository) {
+    BalanceService(AccountService accounts, BalanceRepository repository, MeterRegistry registry) {
         this.accounts = accounts;
         this.repository = repository;
+        this.lockWait = Timer.builder("ledger.lock.wait")
+                .description("Time to lock one balance row for a posting")
+                .register(registry);
     }
 
     public BalanceResponse balanceOf(UUID accountId) {
@@ -48,7 +54,8 @@ public class BalanceService {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public long lockBalance(UUID accountId) {
-        return repository.findBalanceForUpdate(accountId)
+        // Times the SELECT ... FOR UPDATE alone: waiting for other postings' row locks plus one round trip.
+        return lockWait.record(() -> repository.findBalanceForUpdate(accountId))
                 .orElseThrow(() -> new NotFoundException("Account " + accountId + " has no balance row"));
     }
 

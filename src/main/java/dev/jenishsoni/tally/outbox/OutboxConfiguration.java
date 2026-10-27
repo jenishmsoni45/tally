@@ -4,6 +4,7 @@ import org.apache.kafka.clients.admin.NewTopic;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.TopicBuilder;
+import org.springframework.kafka.support.micrometer.KafkaTemplateObservationConvention;
 
 @Configuration(proxyBeanMethods = false)
 class OutboxConfiguration {
@@ -19,6 +20,12 @@ class OutboxConfiguration {
                 .partitions(3)
                 .replicas(1)
                 .build();
+    }
+
+    // Spring Boot applies a single convention bean of this type to its auto-configured KafkaTemplate.
+    @Bean
+    KafkaTemplateObservationConvention entryIdSendConvention() {
+        return new EntryIdSendConvention();
     }
 
 }

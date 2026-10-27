@@ -66,6 +66,10 @@ services:
       - "127.0.0.1:3000:3000"
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
+    volumes:
+      # Provisions the tally ledger dashboard (paths from the grafana/docker-otel-lgtm v0.37.0 README).
+      - ./ops/grafana/dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/tally.yaml:ro
+      - ./ops/grafana/ledger.json:/otel-lgtm/grafana/conf/provisioning/dashboards/tally/ledger.json:ro
 
 volumes:
   postgres-data:

@@ -60,6 +60,17 @@ spring:
         "[request.timeout.ms]": 2000
         # How long send() itself may block waiting for topic metadata or buffer space.
         "[max.block.ms]": 1000
+    template:
+      # Each send gets a producer span that ends when Kafka acknowledges the record; the outbox
+      # tags it with the entry_id.
+      observation-enabled: true
+
+logging:
+  structured:
+    format:
+      # One JSON object per line, with the MDC (traceId, spanId, entry_id, idempotency_key) as fields.
+      # Lines go to the console only and are not sent to Loki: Spring Boot has no stable Logback bridge to OTLP.
+      console: ecs
 
 management:
   endpoints:
@@ -69,3 +80,39 @@ management:
   endpoint:
     health:
       show-details: never
+  tracing:
+    sampling:
+      # Every posting and every publish is traced, so any entry can be followed by its id. Starting
+      # value, not a measurement; Phase 8 measures the cost, and a busy production system would sample.
+      probability: 1.0
+  observations:
+    enable:
+      # Spring observes every @Scheduled run, and the relay runs every 200 ms, which would make five
+      # empty traces a second. The relay starts its own observation when it has rows to publish.
+      "[tasks.scheduled.execution]": false
+  metrics:
+    distribution:
+      percentiles-histogram:
+        # Buckets let the dashboard compute p95 and p99, which a client-side percentile cannot do
+        # across instances.
+        "[ledger.posting.duration]": true
+        "[ledger.lock.wait]": true
+  otlp:
+    metrics:
+      export:
+        # Starting value: with the 1 min default, a stuck relay or new drift takes a minute to show
+        # on the dashboard. Phase 8 may change it.
+        step: 10s
+  logging:
+    export:
+      otlp:
+        # Log lines stay on the console (logging.structured above), so there is nothing to export. Spring Boot
+        # still builds its log batch processor, which then wraps a no-op exporter and stays idle.
+        enabled: false
+
+tally:
+  admin:
+    # Admin endpoints (/admin/**) take this key as a Bearer token. There is no default: while it is
+    # unset, every admin request is refused. Set TALLY_ADMIN_API_KEY to a random value of at least
+    # 32 characters, for example `openssl rand -hex 32`.
+    api-key: ${TALLY_ADMIN_API_KEY:}

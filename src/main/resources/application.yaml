@@ -103,6 +103,12 @@ management:
         # Starting value: with the 1 min default, a stuck relay or new drift takes a minute to show
         # on the dashboard. Phase 8 may change it.
         step: 10s
+  logging:
+    export:
+      otlp:
+        # Log lines stay on the console (logging.structured above), so the log exporter Spring Boot would
+        # otherwise build, with its batch thread, would never have anything to send.
+        enabled: false
 
 tally:
   admin:

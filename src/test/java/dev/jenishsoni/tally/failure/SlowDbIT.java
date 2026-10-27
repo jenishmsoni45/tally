@@ -17,6 +17,7 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 
 import dev.jenishsoni.tally.account.Account;
@@ -31,6 +32,9 @@ import tools.jackson.databind.json.JsonMapper;
         // A context of its own with a 1 s transaction timeout instead of the 5 s default. The base class's
         // containers are static and shared, so this costs no new containers.
         "spring.transaction.default-timeout=1s")
+// Closed after the class, so its relay and pool stop rather than run on beside the other failure tests' context,
+// draining the same outbox and changing what those tests measure.
+@DirtiesContext
 class SlowDbIT extends FailureTest {
 
     // Every round trip takes longer than the 1 s transaction timeout, so no transaction can finish in time.

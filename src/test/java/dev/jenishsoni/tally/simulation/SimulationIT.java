@@ -18,7 +18,6 @@ import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
 import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -67,8 +66,9 @@ class SimulationIT {
     // The nil UUID: account and entry ids are random (version 4) UUIDs, so none can ever be this one.
     private static final UUID NO_SUCH_ID = new UUID(0, 0);
 
+    // The seeds' own time, without the containers and the Spring context starting before the first one.
     private static final AtomicLong operationsSent = new AtomicLong();
-    private static long started;
+    private static final AtomicLong nanosPlaying = new AtomicLong();
 
     @Autowired
     private RestTestClient client;
@@ -87,16 +87,10 @@ class SimulationIT {
         return LongStream.rangeClosed(1, Integer.getInteger("seeds", DEFAULT_SEEDS));
     }
 
-    // Runs before the Spring context starts, so the total covers the operations, not the containers.
-    @BeforeAll
-    static void startClock() {
-        started = System.nanoTime();
-    }
-
     @AfterAll
     static void printTotal() {
         System.out.println("SimulationIT operations=" + operationsSent + " in "
-                + Duration.ofNanos(System.nanoTime() - started).toMillis() + " ms");
+                + Duration.ofNanos(nanosPlaying.get()).toMillis() + " ms");
     }
 
     @ParameterizedTest(name = "seed {0}")
@@ -136,10 +130,12 @@ class SimulationIT {
                 // In the failure itself, so the build's output shows it without the test's console output.
                 throw new AssertionError(failureReport(), e);
             }
+            long elapsed = System.nanoTime() - start;
             operationsSent.addAndGet(OPERATIONS);
+            nanosPlaying.addAndGet(elapsed);
             System.out.println("SimulationIT seed=" + seed + " operations=" + OPERATIONS + " accounts="
                     + accountIds.size() + " entries=" + entryIds.size() + " replays=" + replays + " statuses="
-                    + statuses + " ms=" + Duration.ofNanos(System.nanoTime() - start).toMillis());
+                    + statuses + " ms=" + Duration.ofNanos(elapsed).toMillis());
         }
 
         private void playStep() {

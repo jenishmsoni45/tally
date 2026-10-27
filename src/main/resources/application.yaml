@@ -106,8 +106,8 @@ management:
   logging:
     export:
       otlp:
-        # Log lines stay on the console (logging.structured above), so the log exporter Spring Boot would
-        # otherwise build, with its batch thread, would never have anything to send.
+        # Log lines stay on the console (logging.structured above), so there is nothing to export. Spring Boot
+        # still builds its log batch processor, which then wraps a no-op exporter and stays idle.
         enabled: false
 
 tally:

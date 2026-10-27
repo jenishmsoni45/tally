@@ -32,7 +32,9 @@ import org.springframework.test.web.servlet.client.EntityExchangeResult;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
 import dev.jenishsoni.tally.TestcontainersConfiguration;
+import dev.jenishsoni.tally.account.Account;
 import dev.jenishsoni.tally.posting.JournalEntry;
+import dev.jenishsoni.tally.reconcile.ReconciliationReport;
 import dev.jenishsoni.tally.simulation.LedgerModel.ModelAccount;
 import dev.jenishsoni.tally.simulation.LedgerModel.ModelEntry;
 import dev.jenishsoni.tally.simulation.LedgerModel.Outcome;
@@ -227,7 +229,7 @@ class SimulationIT {
 
         private void recordAccount(Outcome expected, Answer answer) {
             assertThat(expected.index()).as("model index of the new account").isEqualTo(accountIds.size());
-            accountIds.add(UUID.fromString(json.readTree(answer.body()).path("id").asString()));
+            accountIds.add(json.readValue(answer.body(), Account.class).id());
         }
 
         // A replay must be the first answer exactly; a new entry must have the lines and links the model expects.
@@ -281,7 +283,9 @@ class SimulationIT {
                     .isEqualTo(Set.copyOf(entryIds));
             assertThat(savedKeys()).as("saved keys, and the distinct entries they saved")
                     .containsExactly((long) entryIds.size(), (long) entryIds.size());
-            assertThat(recountDrift()).as("accounts the reconciliation job found drifted").isZero();
+            ReconciliationReport recount = recount();
+            assertThat(recount.driftedAccounts()).as("accounts the reconciliation job found drifted").isZero();
+            assertThat(recount.drift()).as("drift the reconciliation job found").isEmpty();
         }
 
         private Map<String, Long> totalsPerCurrency() {
@@ -332,15 +336,14 @@ class SimulationIT {
                     .single();
         }
 
-        private int recountDrift() {
-            String report = client.post().uri("/admin/reconcile")
+        private ReconciliationReport recount() {
+            return client.post().uri("/admin/reconcile")
                     .header(HttpHeaders.AUTHORIZATION, "Bearer " + TestcontainersConfiguration.ADMIN_API_KEY)
                     .exchange()
                     .expectStatus().isOk()
-                    .expectBody(String.class)
+                    .expectBody(ReconciliationReport.class)
                     .returnResult()
                     .getResponseBody();
-            return json.readTree(report).path("driftedAccounts").asInt();
         }
 
         private String failureReport() {

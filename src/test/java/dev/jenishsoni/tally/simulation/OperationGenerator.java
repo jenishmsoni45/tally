@@ -3,7 +3,9 @@ package dev.jenishsoni.tally.simulation;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import dev.jenishsoni.tally.simulation.LedgerModel.ModelAccount;
@@ -339,14 +341,10 @@ final class OperationGenerator {
         if (chance(UNKNOWN_ENTRY_PERCENT)) {
             return new Operation.Reverse(Operation.UNKNOWN);
         }
-        List<Integer> reversed = IntStream.range(0, entries.size())
-                .filter(index -> entries.get(index).reversed())
-                .boxed()
-                .toList();
-        List<Integer> notReversed = IntStream.range(0, entries.size())
-                .filter(index -> !entries.get(index).reversed())
-                .boxed()
-                .toList();
+        Map<Boolean, List<Integer>> byReversed = IntStream.range(0, entries.size()).boxed()
+                .collect(Collectors.partitioningBy(index -> entries.get(index).reversed()));
+        List<Integer> reversed = byReversed.get(true);
+        List<Integer> notReversed = byReversed.get(false);
         if (!reversed.isEmpty() && (notReversed.isEmpty() || chance(SECOND_REVERSAL_PERCENT))) {
             return new Operation.Reverse(pick(reversed));
         }

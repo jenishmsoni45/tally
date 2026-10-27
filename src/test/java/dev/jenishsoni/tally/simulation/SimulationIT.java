@@ -34,6 +34,7 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 import dev.jenishsoni.tally.TestcontainersConfiguration;
 import dev.jenishsoni.tally.account.Account;
 import dev.jenishsoni.tally.posting.JournalEntry;
+import dev.jenishsoni.tally.reconcile.AccountDrift;
 import dev.jenishsoni.tally.reconcile.ReconciliationReport;
 import dev.jenishsoni.tally.simulation.LedgerModel.ModelAccount;
 import dev.jenishsoni.tally.simulation.LedgerModel.ModelEntry;
@@ -45,7 +46,8 @@ import tools.jackson.databind.json.JsonMapper;
  * ledger's rules. After every operation the API's status, the entry it answered with and every balance of the run
  * must match the model, and at the end of the run the ledger must hold its invariants. Seeds 1 to N run (-Dseeds=N,
  * default 20); a failure prints the seed, the step and the last 10 operations, and -Dseed=X replays that seed alone.
- * Each seed works on its own accounts and keys, so seeds cannot affect each other.
+ * Each seed works on its own accounts and keys, and every check looks only at those, so seeds cannot affect each
+ * other.
  */
 @Tag("simulation")
 @Import(TestcontainersConfiguration.class)
@@ -284,9 +286,10 @@ class SimulationIT {
                     .isEqualTo(Set.copyOf(entryIds));
             assertThat(savedKeys()).as("saved keys, and the distinct entries they saved")
                     .containsExactly((long) entryIds.size(), (long) entryIds.size());
-            ReconciliationReport recount = recount();
-            assertThat(recount.driftedAccounts()).as("accounts the reconciliation job found drifted").isZero();
-            assertThat(recount.drift()).as("drift the reconciliation job found").isEmpty();
+            // The job recounts the whole database, so only what it finds on this run's accounts is this run's.
+            assertThat(recount().drift()).extracting(AccountDrift::accountId)
+                    .as("this run's accounts that the reconciliation job found drifted")
+                    .doesNotContainAnyElementsOf(accountIds);
         }
 
         private Map<String, Long> totalsPerCurrency() {

@@ -2,12 +2,20 @@ package dev.jenishsoni.tally.common;
 
 import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.MethodParameter;
+import org.springframework.dao.NonTransientDataAccessResourceException;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.TransactionSystemException;
+import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.method.ParameterErrors;
 import org.springframework.validation.method.ParameterValidationResult;
@@ -26,6 +34,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
     @ExceptionHandler(NotFoundException.class)
     ProblemDetail notFound(NotFoundException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
@@ -39,6 +49,21 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(UnprocessableException.class)
     ProblemDetail unprocessable(UnprocessableException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage());
+    }
+
+    // The database is down, unreachable or too slow: no connection, a timeout, a lost connection, a lock or
+    // serialization failure, or a commit whose outcome is unknown. Spring's DAO categories rather than single
+    // exceptions, so every such failure is a 503. Logged here because, once handled, the servlet container no
+    // longer logs it.
+    @ExceptionHandler({ CannotCreateTransactionException.class, TransactionTimedOutException.class,
+            TransactionSystemException.class, TransientDataAccessException.class,
+            RecoverableDataAccessException.class, NonTransientDataAccessResourceException.class })
+    ProblemDetail databaseUnavailable(RuntimeException e) {
+        log.warn("Database unavailable or too slow; answering 503", e);
+        // Every endpoint can answer this, and only postings take a key, so the advice names postings.
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                "The ledger database is unavailable or too slow; try again. A posting retried with the same"
+                        + " Idempotency-Key moves money at most once.");
     }
 
     // RFC 9110 requires a 401 to name the scheme the client should use.

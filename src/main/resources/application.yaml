@@ -41,10 +41,17 @@ spring:
       # caps lock contention. Phase 8 measures it and may change it.
       maximum-pool-size: 10
       # Starting value (ms): fail fast on a saturated pool rather than hang
-      # callers. Mapping this failure to a 503 problem response comes later.
+      # callers, who get a 503 problem response and may retry with the same key.
       connection-timeout: 2000
       # Pins every session to UTC regardless of the JVM or server default.
       connection-init-sql: SET TIME ZONE 'UTC'
+      data-source-properties:
+        # Seconds. Without it a read on a connection the network has gone silent on waits until TCP gives up,
+        # minutes later: the transaction timeout is checked only between statements, and its cancel request
+        # goes over the same dead network (docs/failure-table.md). Starting value, just above the longest
+        # statement the app runs on purpose, the recount, which its 30 s transaction timeout caps. Phase 8
+        # measures it and may change it.
+        "[socketTimeout]": 35
   kafka:
     producer:
       # A send counts as published only once every in-sync replica has it.

@@ -21,7 +21,7 @@ import org.springframework.kafka.core.ConsumerFactory;
  * the first copy of each entry id and counts the repeats it ignored. It is used only from the test
  * thread, because a Kafka consumer is not thread-safe.
  */
-final class EntryIdCollector implements AutoCloseable {
+public final class EntryIdCollector implements AutoCloseable {
 
     private static final Duration POLL = Duration.ofMillis(100);
     private static final Duration METADATA_TIMEOUT = Duration.ofSeconds(10);
@@ -39,7 +39,7 @@ final class EntryIdCollector implements AutoCloseable {
      * every partition and sees only what is published after it was created. It joins no consumer
      * group and never commits offsets, so it cannot move anyone else's position.
      */
-    static EntryIdCollector fromNow(ConsumerFactory<String, String> consumers) {
+    public static EntryIdCollector fromNow(ConsumerFactory<String, String> consumers) {
         Properties overrides = new Properties();
         overrides.setProperty(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, "false");
         EntryIdCollector collector = new EntryIdCollector(
@@ -54,7 +54,7 @@ final class EntryIdCollector implements AutoCloseable {
     }
 
     /** Polls until every expected id has arrived or the timeout passes; the caller asserts on what arrived. */
-    void awaitIds(Collection<UUID> expected, Duration timeout) {
+    public void awaitIds(Collection<UUID> expected, Duration timeout) {
         long deadline = System.nanoTime() + timeout.toNanos();
         while (!payloads.keySet().containsAll(expected) && System.nanoTime() - deadline < 0) {
             pollOnce();
@@ -74,7 +74,7 @@ final class EntryIdCollector implements AutoCloseable {
         }
     }
 
-    Set<UUID> ids() {
+    public Set<UUID> ids() {
         return Set.copyOf(payloads.keySet());
     }
 
@@ -82,7 +82,7 @@ final class EntryIdCollector implements AutoCloseable {
         return payloads.get(entryId);
     }
 
-    int duplicatesIgnored() {
+    public int duplicatesIgnored() {
         return duplicatesIgnored;
     }
 

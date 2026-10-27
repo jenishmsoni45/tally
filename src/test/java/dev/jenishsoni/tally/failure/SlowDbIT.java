@@ -15,13 +15,10 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 
 import dev.jenishsoni.tally.account.Account;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * A database that answers more slowly than the transaction timeout fails every transfer with a clean 503 problem
@@ -42,9 +39,6 @@ class SlowDbIT extends FailureTest {
 
     // Fewer than the pool's 10 connections, so each transfer waits on the database, not on the pool.
     private static final int TRANSFERS = 5;
-
-    @Autowired
-    private JsonMapper json;
 
     @Test
     void transfersOnASlowDatabaseFailWithA503ProblemAndLeaveNoPartialEntries() throws Exception {
@@ -113,10 +107,8 @@ class SlowDbIT extends FailureTest {
     private void assertCleanServiceUnavailable(Attempt attempt) {
         Answer answer = attempt.answer();
         assertThat(answer.status()).as("status for %s", attempt.key()).isEqualTo(503);
-        assertThat(answer.contentType()).as("content type for %s", attempt.key())
-                .isNotNull()
-                .matches(type -> type.isCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON),
-                        "compatible with " + MediaType.APPLICATION_PROBLEM_JSON);
+        assertThat(answer.isProblem()).as("problem content type for %s, was %s", attempt.key(), answer.contentType())
+                .isTrue();
         assertThat(answer.body()).as("body for %s, which must name nothing internal", attempt.key())
                 .isNotBlank()
                 .doesNotContainIgnoringCase("exception", "sql")

@@ -128,7 +128,7 @@ abstract class FailureTest {
     private AccountService accounts;
 
     @Autowired
-    private JsonMapper json;
+    JsonMapper json;
 
     private final List<UUID> testAccounts = new CopyOnWriteArrayList<>();
     private final Set<String> keysSent = ConcurrentHashMap.newKeySet();

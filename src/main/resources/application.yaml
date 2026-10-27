@@ -69,7 +69,7 @@ logging:
   structured:
     format:
       # One JSON object per line, with the MDC (traceId, spanId, entry_id, idempotency_key) as fields.
-      # logback-spring.xml also sends every line over OTLP.
+      # Lines go to the console only and are not sent to Loki: Spring Boot has no stable Logback bridge to OTLP.
       console: ecs
 
 management:

@@ -58,6 +58,10 @@ start_app() {
     if curl -sf "$BASE_URL/actuator/health" | grep -q '"status":"UP"'; then
       return
     fi
+    if ! kill -0 "$app_pid" 2>/dev/null; then
+      echo "The app stopped while starting; see $LOGS/app-$1.log" >&2
+      exit 1
+    fi
     sleep 1
   done
   echo "The app did not report UP within 120 s; see $LOGS/app-$1.log" >&2

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Load test, not part of the build. Builds the jar, starts a Docker Compose stack of its own with an empty database,
-# starts the app with the quiet `load` profile and runs k6 against it. Each run's k6 JSON summary and console output
-# go to load/results/<date>/, with the test conditions and samples of the app, pool and database taken during it.
+# starts the app with the quiet `load` profile (load/application-load.yaml) and runs k6 against it. Each run's k6 JSON
+# summary and console output go to load/results/<date>/, with the test conditions and samples of the app, pool and
+# database taken during it.
 #
 #   scripts/load.sh              scenario A (load/transfers.js), then scenario B (load/hot-account.js)
 #   scripts/load.sh saturation   scenario A at each of STEPS virtual users in turn, STEP_DURATION each
@@ -48,7 +49,8 @@ stop_app() {
 trap stop_app EXIT
 
 start_app() {
-  java -jar "$jar" --spring.profiles.active=load > "$LOGS/app.log" 2>&1 &
+  java -jar "$jar" --spring.config.additional-location=file:load/ --spring.profiles.active=load \
+    > "$LOGS/app.log" 2>&1 &
   app_pid=$!
   for _ in $(seq 120); do
     if curl -sf "$BASE_URL/actuator/health" | grep -q '"status":"UP"'; then

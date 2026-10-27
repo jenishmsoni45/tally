@@ -48,9 +48,9 @@ spring:
       data-source-properties:
         # Seconds. Without it a read on a connection the network has gone silent on waits until TCP gives up,
         # minutes later: the transaction timeout is checked only between statements, and its cancel request
-        # goes over the same dead network (seen in Phase 6). Starting value, just above the longest statement
-        # the app runs on purpose, the recount, which its 30 s transaction timeout caps. Phase 8 measures it
-        # and may change it.
+        # goes over the same dead network (docs/failure-table.md). Starting value, just above the longest
+        # statement the app runs on purpose, the recount, which its 30 s transaction timeout caps. Phase 8
+        # measures it and may change it.
         "[socketTimeout]": 35
   kafka:
     producer:

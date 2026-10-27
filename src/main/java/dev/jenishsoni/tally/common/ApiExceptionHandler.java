@@ -2,12 +2,19 @@ package dev.jenishsoni.tally.common;
 
 import java.util.stream.Stream;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.MethodParameter;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.transaction.TransactionSystemException;
+import org.springframework.transaction.TransactionTimedOutException;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.method.ParameterErrors;
 import org.springframework.validation.method.ParameterValidationResult;
@@ -26,6 +33,8 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 @RestControllerAdvice
 class ApiExceptionHandler extends ResponseEntityExceptionHandler {
 
+    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
     @ExceptionHandler(NotFoundException.class)
     ProblemDetail notFound(NotFoundException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
@@ -39,6 +48,16 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(UnprocessableException.class)
     ProblemDetail unprocessable(UnprocessableException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage());
+    }
+
+    // The database is down, unreachable or too slow. Safe to retry with the same Idempotency-Key: a request that did
+    // commit replays its saved response. Logged here because, once handled, the servlet container no longer logs it.
+    @ExceptionHandler({ CannotCreateTransactionException.class, TransactionTimedOutException.class,
+            TransactionSystemException.class, QueryTimeoutException.class, DataAccessResourceFailureException.class })
+    ProblemDetail databaseUnavailable(RuntimeException e) {
+        log.warn("Database unavailable or too slow; answering 503", e);
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
+                "The ledger database is unavailable or too slow; retry with the same Idempotency-Key");
     }
 
     // RFC 9110 requires a 401 to name the scheme the client should use.

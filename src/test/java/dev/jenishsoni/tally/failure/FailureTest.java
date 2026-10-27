@@ -7,12 +7,13 @@ import java.io.UncheckedIOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -132,7 +133,7 @@ abstract class FailureTest {
     private final List<UUID> testAccounts = new CopyOnWriteArrayList<>();
     private final Set<String> keysSent = ConcurrentHashMap.newKeySet();
     private final Map<String, Set<UUID>> answeredEntries = new ConcurrentHashMap<>();
-    private final AtomicInteger failedAttempts = new AtomicInteger();
+    private final Queue<Answer> failedAnswers = new ConcurrentLinkedQueue<>();
     private Map<String, Long> totalsBefore;
     private EntryIdCollector consumer;
 
@@ -164,7 +165,7 @@ abstract class FailureTest {
             consumer.awaitIds(entries, DELIVERY_DEADLINE);
             System.out.println(getClass().getSimpleName() + "." + test.getTestMethod().orElseThrow().getName()
                     + ": keys=" + keysSent.size() + " entries=" + entries.size()
-                    + " failedAttempts=" + failedAttempts + " duplicatesIgnored=" + consumer.duplicatesIgnored());
+                    + " failedAttempts=" + failedAnswers.size() + " duplicatesIgnored=" + consumer.duplicatesIgnored());
 
             assertThat(totalsPerCurrency()).as("total money per currency").isEqualTo(totalsBefore);
             assertThat(driftedAccounts()).as("accounts whose balance differs from the sum of their lines").isEmpty();
@@ -196,7 +197,7 @@ abstract class FailureTest {
         if (answer.status() == 201) {
             answeredEntries.computeIfAbsent(key, _ -> ConcurrentHashMap.newKeySet()).add(entryId(answer));
         } else if (answer.status() >= 500) {
-            failedAttempts.incrementAndGet();
+            failedAnswers.add(answer);
         }
         return answer;
     }
@@ -218,7 +219,12 @@ abstract class FailureTest {
 
     /** Attempts answered with a 5xx so far, which shows that a fault reached the app. */
     int failedAttempts() {
-        return failedAttempts.get();
+        return failedAnswers.size();
+    }
+
+    /** Every attempt answered with a 5xx so far. */
+    List<Answer> failedAnswers() {
+        return List.copyOf(failedAnswers);
     }
 
     static Map<String, Object> transferBody(Account from, Account to, long amount) {
@@ -313,6 +319,12 @@ abstract class FailureTest {
 
     /** The status, content type and body of one answer. */
     record Answer(int status, MediaType contentType, String body) {
+
+        /** Whether the body is an RFC 9457 problem, as every error response must be. */
+        boolean isProblem() {
+            return contentType != null && contentType.isCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON);
+        }
+
     }
 
     /** One proxied connection from the app to a container, which a test can cut or slow and then restore. */

@@ -74,6 +74,9 @@ class DbConnectionDropIT extends FailureTest {
         assertThat(answers).as("clients whose final answer is not 201")
                 .filteredOn(answer -> answer.status() != 201)
                 .isEmpty();
+        assertThat(failedAnswers()).as("failed attempts that were not a 503 problem response")
+                .filteredOn(answer -> answer.status() != 503 || !answer.isProblem())
+                .isEmpty();
         // Counted from the cut on, so a 5xx from a busy pool before it cannot stand in for the cut.
         assertThat(failedAttempts()).as("attempts answered with a 5xx, which shows the cut reached the app")
                 .isGreaterThan(cut.failedAttempts());

@@ -65,11 +65,15 @@ tasks.register<Test>("simulationTest") {
         includeTags("simulation")
     }
     shouldRunAfter("test")
-    // A failure's message holds the seed and the last operations, so it is shown whole.
+    // A failure's message holds the seed and the last operations, so it is shown whole, and the console shows the
+    // count and time of every seed. The app logs only warnings here, so those lines are not lost among the log
+    // lines of ten thousand requests.
     testLogging {
         events("failed")
         exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showStandardStreams = true
     }
+    systemProperty("logging.level.root", "WARN")
     // A simulation is asked for on purpose, so an earlier result must never stand in for a new run.
     outputs.upToDateWhen { false }
     // -D on the Gradle command line sets a property of Gradle's own JVM, not of the test JVM, so seed (replay

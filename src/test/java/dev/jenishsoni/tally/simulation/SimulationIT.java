@@ -118,7 +118,7 @@ class SimulationIT {
         private final Map<Integer, Integer> statuses = new TreeMap<>();
         private int replays;
         private int step;
-        // The operation of the step being played, or null once the end-of-run checks have started.
+        // The operation of the step being played, or null while the generator is still choosing it.
         private Operation current;
 
         Run(long seed) {
@@ -132,7 +132,6 @@ class SimulationIT {
                 for (step = 0; step < OPERATIONS; step++) {
                     playStep();
                 }
-                current = null;
                 checkInvariants();
             } catch (AssertionError | RuntimeException e) {
                 // In the failure itself, so the build's output shows it without the test's console output.
@@ -147,6 +146,8 @@ class SimulationIT {
         }
 
         private void playStep() {
+            // Cleared first, so a failure while choosing the operation does not name the previous step's.
+            current = null;
             Operation operation = generator.next(model);
             current = operation;
             // A retry sends the earlier request unchanged and asks the model the same question again; a reused key
@@ -351,14 +352,20 @@ class SimulationIT {
         }
 
         private String failureReport() {
-            String where = current == null
-                    ? "in the end-of-run checks after all " + OPERATIONS + " steps"
-                    : "at step " + step + " of " + OPERATIONS + ": " + current;
-            StringBuilder report = new StringBuilder("Simulation failed: seed=" + seed + " " + where
+            StringBuilder report = new StringBuilder("Simulation failed: seed=" + seed + " " + where()
                     + "\nReplay it with ./gradlew simulationTest -Dseed=" + seed + "\nLast " + recent.size()
                     + " steps answered:");
             recent.forEach(played -> report.append("\n  ").append(played));
             return report.toString();
+        }
+
+        // The loop leaves step at OPERATIONS only once every step has passed.
+        private String where() {
+            if (step == OPERATIONS) {
+                return "in the end-of-run checks after all " + OPERATIONS + " steps";
+            }
+            String at = "at step " + step + " of " + OPERATIONS;
+            return current == null ? at + ", while choosing its operation" : at + ": " + current;
         }
 
     }

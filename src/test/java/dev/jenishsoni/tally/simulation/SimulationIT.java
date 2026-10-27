@@ -113,6 +113,8 @@ class SimulationIT {
         private final Map<Integer, Integer> statuses = new TreeMap<>();
         private int replays;
         private int step;
+        // The operation of the step being played, or null once the end-of-run checks have started.
+        private Operation current;
 
         Run(long seed) {
             this.seed = seed;
@@ -125,6 +127,7 @@ class SimulationIT {
                 for (step = 0; step < OPERATIONS; step++) {
                     playStep();
                 }
+                current = null;
                 checkInvariants();
             } catch (AssertionError | RuntimeException e) {
                 // In the failure itself, so the build's output shows it without the test's console output.
@@ -140,6 +143,7 @@ class SimulationIT {
 
         private void playStep() {
             Operation operation = generator.next(model);
+            current = operation;
             // A retry sends the earlier request unchanged and asks the model the same question again; a reused key
             // sends a new request under the earlier request's key.
             Request request = switch (operation) {
@@ -150,7 +154,7 @@ class SimulationIT {
             requests.add(request);
             Outcome expected = request.expect().get();
             Answer answer = send(request);
-            remember(new Step(step, operation, expected, answer.status()));
+            remember(new Step(step, operation, request.operation(), expected, answer.status()));
             statuses.merge(answer.status(), 1, Integer::sum);
             checkAnswer(request, expected, answer);
             checkBalances();
@@ -340,9 +344,12 @@ class SimulationIT {
         }
 
         private String failureReport() {
-            StringBuilder report = new StringBuilder("Simulation failed: seed=" + seed + " at step " + step + " of "
-                    + OPERATIONS + "; replay it with ./gradlew simulationTest -Dseed=" + seed + "\nLast " + recent.size()
-                    + " operations:");
+            String where = current == null
+                    ? "in the end-of-run checks after all " + OPERATIONS + " steps"
+                    : "at step " + step + " of " + OPERATIONS + ": " + current;
+            StringBuilder report = new StringBuilder("Simulation failed: seed=" + seed + " " + where
+                    + "\nReplay it with ./gradlew simulationTest -Dseed=" + seed + "\nLast " + recent.size()
+                    + " steps answered:");
             recent.forEach(played -> report.append("\n  ").append(played));
             return report.toString();
         }
@@ -356,11 +363,15 @@ class SimulationIT {
     private record Answer(int status, String body) {
     }
 
-    private record Step(int index, Operation operation, Outcome expected, int answered) {
+    /** One step as played: sent is the operation whose request went out, which for a retry is the earlier one. */
+    private record Step(int index, Operation operation, Operation sent, Outcome expected, int answered) {
 
         @Override
         public String toString() {
-            return "step " + index + ": " + operation + " expected " + expected + ", answered " + answered;
+            String played = operation instanceof Operation.Retry
+                    ? operation + ", resending " + sent
+                    : operation.toString();
+            return "step " + index + ": " + played + " expected " + expected + ", answered " + answered;
         }
 
     }

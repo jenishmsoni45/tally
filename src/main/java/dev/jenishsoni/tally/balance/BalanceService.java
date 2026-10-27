@@ -1,7 +1,9 @@
 package dev.jenishsoni.tally.balance;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -25,7 +27,7 @@ public class BalanceService {
         this.accounts = accounts;
         this.repository = repository;
         this.lockWait = Timer.builder("ledger.lock.wait")
-                .description("Time to lock one balance row for a posting")
+                .description("Time to lock a posting's balance rows")
                 .register(registry);
     }
 
@@ -48,21 +50,28 @@ public class BalanceService {
     }
 
     /**
-     * Locks the account's balance row until the surrounding transaction ends and returns the
-     * balance. Only the posting transaction may call this, and it must lock accounts in
-     * ascending id order so two postings can never wait on each other.
+     * Locks the accounts' balance rows until the surrounding transaction ends and returns the
+     * balances. Only the posting transaction may call this. One statement locks all the rows in
+     * ascending account id order, the same order in every posting, so two postings can never
+     * wait on each other.
      */
     @Transactional(propagation = Propagation.MANDATORY)
-    public long lockBalance(UUID accountId) {
+    public Map<UUID, Long> lockBalances(Collection<UUID> accountIds) {
         // Times the SELECT ... FOR UPDATE alone: waiting for other postings' row locks plus one round trip.
-        return lockWait.record(() -> repository.findBalanceForUpdate(accountId))
-                .orElseThrow(() -> new NotFoundException("Account " + accountId + " has no balance row"));
+        Map<UUID, Long> locked = lockWait.record(() -> repository.findBalancesForUpdate(accountIds));
+        accountIds.stream()
+                .filter(accountId -> !locked.containsKey(accountId))
+                .findFirst()
+                .ifPresent(accountId -> {
+                    throw new NotFoundException("Account " + accountId + " has no balance row");
+                });
+        return locked;
     }
 
-    /** Stores a balance computed from {@link #lockBalance}, so the caller must still hold that lock. */
+    /** Stores balances computed from {@link #lockBalances}, so the caller must still hold those locks. */
     @Transactional(propagation = Propagation.MANDATORY)
-    public void storeBalance(UUID accountId, long balance) {
-        repository.updateBalance(accountId, balance);
+    public void storeBalances(Map<UUID, Long> balances) {
+        repository.updateBalances(balances);
     }
 
     /** Keyset paging on line id: cursor 0 starts at the beginning, and one extra row tells whether more exist. */

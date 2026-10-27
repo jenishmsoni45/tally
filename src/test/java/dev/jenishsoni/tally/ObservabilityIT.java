@@ -77,7 +77,7 @@ class ObservabilityIT {
 
         assertThat(postings("transfer") - postings).isEqualTo(1);
         assertThat(postingDurations("transfer", "posted") - posted).isOne();
-        assertThat(lockWaits() - lockWaits).as("one lock per account").isEqualTo(2);
+        assertThat(lockWaits() - lockWaits).as("one lock statement per posting").isOne();
         JsonNode line = logLine(output, "Posted entry " + id).orElseThrow();
         assertThat(line.path("entry_id").asString()).isEqualTo(id.toString());
         assertThat(line.path("idempotency_key").asString()).isEqualTo(key);

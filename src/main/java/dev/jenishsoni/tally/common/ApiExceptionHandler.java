@@ -5,8 +5,9 @@ import java.util.stream.Stream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.MethodParameter;
-import org.springframework.dao.DataAccessResourceFailureException;
-import org.springframework.dao.QueryTimeoutException;
+import org.springframework.dao.NonTransientDataAccessResourceException;
+import org.springframework.dao.RecoverableDataAccessException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -50,14 +51,19 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage());
     }
 
-    // The database is down, unreachable or too slow. Safe to retry with the same Idempotency-Key: a request that did
-    // commit replays its saved response. Logged here because, once handled, the servlet container no longer logs it.
+    // The database is down, unreachable or too slow: no connection, a timeout, a lost connection, a lock or
+    // serialization failure, or a commit whose outcome is unknown. Spring's DAO categories rather than single
+    // exceptions, so every such failure is a 503. Logged here because, once handled, the servlet container no
+    // longer logs it.
     @ExceptionHandler({ CannotCreateTransactionException.class, TransactionTimedOutException.class,
-            TransactionSystemException.class, QueryTimeoutException.class, DataAccessResourceFailureException.class })
+            TransactionSystemException.class, TransientDataAccessException.class,
+            RecoverableDataAccessException.class, NonTransientDataAccessResourceException.class })
     ProblemDetail databaseUnavailable(RuntimeException e) {
         log.warn("Database unavailable or too slow; answering 503", e);
+        // Every endpoint can answer this, and only postings take a key, so the advice names postings.
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE,
-                "The ledger database is unavailable or too slow; retry with the same Idempotency-Key");
+                "The ledger database is unavailable or too slow; try again. A posting retried with the same"
+                        + " Idempotency-Key moves money at most once.");
     }
 
     // RFC 9110 requires a 401 to name the scheme the client should use.

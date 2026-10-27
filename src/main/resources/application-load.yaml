@@ -1,0 +1,14 @@
+# The profile scripts/load.sh starts the jar with: the production settings from application.yaml, with the two
+# changes below. Pool, timeouts and tracing stay as they are, since they are what the load test measures.
+logging:
+  level:
+    # One INFO line per posting would make the console part of what is measured.
+    root: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # scripts/load.sh reads the pool's size, active and pending connections and the CPU load here while a run is
+        # going. Only this profile exposes it.
+        include: health, metrics

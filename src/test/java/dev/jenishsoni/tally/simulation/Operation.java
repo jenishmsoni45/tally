@@ -42,9 +42,9 @@ sealed interface Operation {
     }
 
     /**
-     * Sends a new posting with the idempotency key of an earlier posting step, as a client that reuses a key by
-     * mistake. If that key saved a different request, the API answers 409; if the earlier posting was refused, its
-     * key was never saved, and this request posts under it.
+     * Sends a new transfer with the idempotency key of an earlier posting step, as a client that reuses a key by
+     * mistake. It is answered like any request under that key: a 409 if the key saved a different request, a replay
+     * if it saved this same one, and a new posting if no posting under the key has succeeded yet.
      */
     record ReuseKey(int operation, Transfer request) implements Operation {
     }

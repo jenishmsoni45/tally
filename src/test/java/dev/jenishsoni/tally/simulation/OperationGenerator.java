@@ -14,18 +14,20 @@ import dev.jenishsoni.tally.simulation.LedgerModel.ModelEntry;
 /**
  * Chooses each operation of a simulation run in the plan's mix: open account 5%, transfer 60%, multi-line entry
  * 15%, reverse 10% and retry an earlier request 10%, a fifth of those retries reusing an earlier posting's key for a
- * different request. Most operations are ones the ledger accepts, so balances keep
- * moving; a few percent of each kind are built to be refused (an unknown account or entry, a wrong currency,
- * missing funds, lines that do not balance, a second reversal), so every rule the model copies is exercised. Every
- * choice comes from one {@link Random} and the model's state, so the same seed against the same model gives the
- * same operations, and a failing run is replayed from its seed alone.
+ * different request. These are the weights of each draw; a kind that cannot be made yet falls back to another, so a
+ * run's actual mix differs a little. Most operations are ones the ledger accepts, so balances keep moving; a few
+ * percent of each kind are built to be refused (an unknown account or entry, a wrong currency, missing funds, lines
+ * that do not balance, a second reversal, a key reused for another request), so every rule the model copies is
+ * exercised except overflow, which amounts this small never reach. Every choice comes from one {@link Random} and
+ * the model's state, so the same seed against the same model gives the same operations, and a failing run is
+ * replayed from its seed alone.
  */
 final class OperationGenerator {
 
     private static final List<String> CURRENCIES = List.of("CAD", "USD");
 
     // The plan's mix as cumulative percentages: open account 5%, transfer 60%, entry 15%, reverse 10%, and the
-    // last 10% retry an earlier request.
+    // last 10% retry an earlier request, or reuse its key for another one (REUSED_KEY_PERCENT).
     private static final int OPEN_ACCOUNT_BELOW = 5;
     private static final int TRANSFER_BELOW = 65;
     private static final int ENTRY_BELOW = 80;

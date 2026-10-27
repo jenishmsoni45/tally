@@ -62,8 +62,9 @@ class SimulationIT {
     private static final int CREATED = 201;
 
     // Keys and account codes are global and outlive the test, so a reused database must not see the same ones
-    // twice. They do not change what a run does, so a seed still replays the same operations.
-    private static final String RUN = UUID.randomUUID().toString();
+    // twice. They do not change what a run does, so a seed still replays the same operations. Eight hex digits keep
+    // an account code within the API's 64 characters for any long seed.
+    private static final String RUN = UUID.randomUUID().toString().substring(0, 8);
 
     // The nil UUID: account and entry ids are random (version 4) UUIDs, so none can ever be this one.
     private static final UUID NO_SUCH_ID = new UUID(0, 0);

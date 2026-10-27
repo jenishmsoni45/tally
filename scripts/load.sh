@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
-# Load test, not part of the build. Builds the jar, starts a Docker Compose stack of its own with an empty database,
-# starts the app with the quiet `load` profile (load/application-load.yaml) and runs k6 against it. Each run's k6 JSON
-# summary and console output go to load/results/<date>/, with the test conditions and samples of the app, pool and
-# database taken during it.
+# Load test, not part of the build. Builds the jar, then for every run starts a Docker Compose stack of its own with
+# an empty database, starts the app on it with the quiet `load` profile (load/application-load.yaml) and runs k6
+# against it. Each run's k6 JSON summary and console output go to load/results/<date>/, with the test conditions and
+# samples of the app, pool and database taken during it.
 #
 #   scripts/load.sh              scenario A (load/transfers.js), then scenario B (load/hot-account.js)
 #   scripts/load.sh saturation   scenario A at each of STEPS virtual users in turn, STEP_DURATION each
 #
 # Needs Docker, k6, jq and curl. The stack is the Compose project tally-load, on the ports of the bootRun stack, so
-# stop that one first. Its database is emptied at every start, so every run starts from the same state; the stack is
-# left running afterwards for a look in Grafana (localhost:3000), and `docker compose -p tally-load down -v` removes it.
+# stop that one first. It is recreated, database and Kafka included, before every run, so no run inherits rows or an
+# outbox backlog from the one before. The last run's stack is left running for a look in Grafana (localhost:3000),
+# and `docker compose -p tally-load down -v` removes it.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -25,7 +26,7 @@ DB_USER=${POSTGRES_USER:-tally}
 read -r DAY TIME <<< "$(date -u '+%Y-%m-%d %H%M%SZ')"
 # Every file of one invocation starts with its time, so several invocations on one day sit side by side.
 PREFIX=load/results/$DAY/$TIME
-# The app's log is not a result, so it stays under build/, which is never committed.
+# The app's logs are not results, so they stay under build/, which is never committed.
 LOGS=build/load/$DAY-$TIME
 # CPU columns are percent of all cores (the JVM's own two readings) or of one core (docker stats).
 SAMPLE_COLUMNS=time_utc,app_cpu_pct,host_cpu_pct,pool_active,pool_pending,db_active,db_lock_waits,db_idle_in_transaction,outbox_unpublished,postgres_cpu_pct,kafka_cpu_pct,lgtm_cpu_pct
@@ -45,12 +46,13 @@ stop_app() {
     # A JVM stopped by SIGTERM exits with 143, which is the expected end here.
     wait "$app_pid" || true
   fi
+  app_pid=""
 }
 trap stop_app EXIT
 
 start_app() {
   java -jar "$jar" --spring.config.additional-location=file:load/ --spring.profiles.active=load \
-    > "$LOGS/app.log" 2>&1 &
+    > "$LOGS/app-$1.log" 2>&1 &
   app_pid=$!
   for _ in $(seq 120); do
     if curl -sf "$BASE_URL/actuator/health" | grep -q '"status":"UP"'; then
@@ -58,8 +60,19 @@ start_app() {
     fi
     sleep 1
   done
-  echo "The app did not report UP within 120 s; see $LOGS/app.log" >&2
+  echo "The app did not report UP within 120 s; see $LOGS/app-$1.log" >&2
   exit 1
+}
+
+# Recreates the stack with an empty database and starts the app on it.
+fresh_start() {
+  stop_app
+  compose down -v --remove-orphans
+  compose up -d --wait
+  postgres_id=$(compose ps -q postgres)
+  kafka_id=$(compose ps -q kafka)
+  lgtm_id=$(compose ps -q lgtm)
+  start_app "$1"
 }
 
 # One value from /actuator/metrics, which only the load profile exposes, put through the jq filter in $2.
@@ -90,6 +103,7 @@ write_conditions() {
     echo "docker: $(docker version --format '{{.Server.Version}}'), $(docker info --format '{{.NCPU}} CPUs and {{.MemTotal}} bytes') for its VM"
     echo "images: $(compose config --images | sort | paste -sd ' ' -)"
     echo "app: the boot jar with the load profile; k6, the app and the stack share this machine"
+    echo "each run: a new stack with an empty database"
     # Read from the running app, so it is the size in effect, not the one in a file.
     echo "connection pool: $(metric hikaricp.connections.max floor) connections"
   } > "$PREFIX-conditions.txt"
@@ -125,6 +139,12 @@ sample_while_running() {
 run_k6() {
   local label=$1 script=$2
   shift 2
+  fresh_start "$label"
+  # Written by the first run, once the app is up to report its pool size; every run uses the same jar and profile.
+  if [[ ! -f "$PREFIX-conditions.txt" ]]; then
+    write_conditions
+    cat "$PREFIX-conditions.txt"
+  fi
   echo "$(date -u +%H:%M:%SZ) running $label: $script $*"
   k6 run --quiet --summary-export="$PREFIX-$label.json" -e BASE_URL="$BASE_URL" -e RUN_ID="load-$DAY-$TIME-$label" \
     "$@" "$script" > "$PREFIX-$label.txt" 2>&1 &
@@ -182,17 +202,6 @@ if [[ $(wc -l <<< "$jar") -ne 1 ]]; then
   echo "Expected one boot jar in build/libs, found: $jar. Run ./gradlew clean first." >&2
   exit 1
 fi
-
-# Removes the last run's stack with its database, so every run starts from an empty ledger.
-compose down -v --remove-orphans
-compose up -d --wait
-postgres_id=$(compose ps -q postgres)
-kafka_id=$(compose ps -q kafka)
-lgtm_id=$(compose ps -q lgtm)
-
-start_app
-write_conditions
-cat "$PREFIX-conditions.txt"
 
 if [[ $MODE == saturation ]]; then
   for vus in $STEPS; do

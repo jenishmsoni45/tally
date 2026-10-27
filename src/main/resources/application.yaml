@@ -97,6 +97,12 @@ management:
         # across instances.
         "[ledger.posting.duration]": true
         "[ledger.lock.wait]": true
+  otlp:
+    metrics:
+      export:
+        # Starting value: with the 1 min default, a stuck relay or new drift takes a minute to show
+        # on the dashboard. Phase 8 may change it.
+        step: 10s
 
 tally:
   admin:

@@ -81,6 +81,8 @@ class ObservabilityIT {
         JsonNode line = logLine(output, "Posted entry " + id).orElseThrow();
         assertThat(line.path("entry_id").asString()).isEqualTo(id.toString());
         assertThat(line.path("idempotency_key").asString()).isEqualTo(key);
+        assertThat(line.path("traceId").asString()).as("the request's trace").hasSize(32);
+        assertThat(line.path("spanId").asString()).hasSize(16);
     }
 
     @Test

@@ -88,9 +88,17 @@ class OutboxRelay {
         // trace; an idle relay would otherwise make five empty traces a second. The Kafka send spans become
         // children of this one and carry the entry_id (EntryIdSendConvention), and the "Published entry"
         // lines carry this trace's id.
-        Observation.createNotStarted("ledger.outbox.publish", observations)
-                .contextualName("outbox publish")
-                .observe(() -> publish(events));
+        try {
+            Observation.createNotStarted("ledger.outbox.publish", observations)
+                    .contextualName("outbox publish")
+                    .observe(() -> publish(events));
+        } catch (RuntimeException e) {
+            // relay() logs the rollback and its cause but cannot name the rows, so the entries are listed here,
+            // where a search for an entry_id finds why it is still unpublished.
+            log.warn("Publishing entries {} failed; they stay unpublished",
+                    events.stream().map(PendingEvent::entryId).toList());
+            throw e;
+        }
         return events.size();
     }
 

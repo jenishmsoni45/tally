@@ -76,6 +76,11 @@ class PostingTelemetry {
         } catch (ConflictException | UnprocessableException | NotFoundException e) {
             outcome = REJECTED;
             throw e;
+        } catch (RuntimeException e) {
+            // Logged here, while the idempotency key is still in the log context. The servlet container logs
+            // the exception again once observe() has returned, and that line no longer carries the key.
+            log.error("Posting {} failed", operation, e);
+            throw e;
         } finally {
             sample.stop(durations.withTags(OPERATION, operation, OUTCOME, outcome));
         }

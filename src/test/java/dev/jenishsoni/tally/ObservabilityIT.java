@@ -119,6 +119,55 @@ class ObservabilityIT {
     }
 
     @Test
+    void aPostingThatFailsIsLoggedWithItsKeyAndTimedAsFailed(CapturedOutput output) {
+        Map<String, Object> body = transferBody(true);
+        String key = key();
+        long failed = postingDurations("transfer", "failed");
+        JdbcClient owner = JdbcClient.create(ownerDataSource());
+
+        // Without this privilege the posting's outbox insert fails with a database error, not a refusal, and the
+        // whole posting rolls back.
+        owner.sql("revoke insert on outbox from tally_app").update();
+        try {
+            client.post().uri("/transfers")
+                    .header("Idempotency-Key", key)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .exchange()
+                    .expectStatus().is5xxServerError();
+        } finally {
+            owner.sql("grant insert on outbox to tally_app").update();
+        }
+
+        assertThat(postingDurations("transfer", "failed") - failed).isOne();
+        JsonNode line = logLine(output, "Posting transfer failed").orElseThrow();
+        assertThat(line.path("idempotency_key").asString()).isEqualTo(key);
+    }
+
+    @Test
+    void aBatchKafkaRefusesIsLoggedWithItsEntryIds(CapturedOutput output) {
+        JdbcClient owner = JdbcClient.create(ownerDataSource());
+        UUID entryId = UUID.randomUUID();
+
+        // Over the producer's 1 MB max.request.size, so Kafka refuses the record after the relay has read it, and
+        // its batch fails on every run until the row is gone.
+        owner.sql("""
+                insert into outbox (entry_id, type, payload)
+                values (:entryId, 'entry.posted', jsonb_build_object('padding', repeat('x', 1100000)))
+                """)
+                .param("entryId", entryId)
+                .update();
+        try {
+            await("the relay's failure line naming the entry").atMost(PUBLISH_DEADLINE)
+                    .until(() -> logLine(output, "Publishing entries ")
+                            .filter(line -> line.path("message").asString().contains(entryId.toString()))
+                            .isPresent());
+        } finally {
+            owner.sql("delete from outbox where entry_id = :entryId").param("entryId", entryId).update();
+        }
+    }
+
+    @Test
     void theRelayLogsThePublishWithTheEntryId(CapturedOutput output) {
         Map<String, Object> body = transferBody(true);
 
@@ -132,8 +181,7 @@ class ObservabilityIT {
 
     @Test
     void theOutboxGaugesShowARowTheRelayHasNotPublished() {
-        DriverManagerDataSource ownerDataSource = new DriverManagerDataSource(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
+        DriverManagerDataSource ownerDataSource = ownerDataSource();
         JdbcClient owner = JdbcClient.create(ownerDataSource);
         TransactionTemplate ownerTransaction =
                 new TransactionTemplate(new DataSourceTransactionManager(ownerDataSource));
@@ -176,6 +224,11 @@ class ObservabilityIT {
                 .getResponseBody();
         assertThat(entry).isNotNull();
         return entry.id();
+    }
+
+    // The schema owner, which can change tally_app's privileges and write rows the application cannot.
+    private DriverManagerDataSource ownerDataSource() {
+        return new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
     }
 
     // Each console line is one ECS JSON object; parsing it checks the fields, not just that the text appears.

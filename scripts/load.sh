@@ -137,12 +137,18 @@ container_cpu() {
 }
 
 # A reading that fails (the app not answering, say) leaves its cells empty rather than stopping the run.
+sample() {
+  echo "$(date -u +%H:%M:%S),$(metric process.cpu.usage '. * 100 | round'),$(metric system.cpu.usage '. * 100 | round'),$(metric hikaricp.connections.active floor),$(metric hikaricp.connections.pending floor),$(db_sample),$(container_cpu)"
+}
+
+# The last row is taken once k6 has finished, so it shows the outbox backlog the run left behind.
 sample_while_running() {
   echo "$SAMPLE_COLUMNS"
   while kill -0 "$1" 2>/dev/null; do
-    echo "$(date -u +%H:%M:%S),$(metric process.cpu.usage '. * 100 | round'),$(metric system.cpu.usage '. * 100 | round'),$(metric hikaricp.connections.active floor),$(metric hikaricp.connections.pending floor),$(db_sample),$(container_cpu)"
+    sample
     sleep "$SAMPLE_INTERVAL"
   done
+  sample
 }
 
 # k6 exits with 99 when a threshold is crossed: the run still counts and its summary is kept. Any other failure stops
@@ -173,21 +179,23 @@ run_k6() {
 }
 
 # The transfers alone, from the scenario's sub-metrics (load/common.js). k6 divides the count by the whole run, so
-# requests per second include the seeding time that load/seed.js prints.
+# requests per second include the seeding time that load/seed.js prints. The outbox column is what the relay had not
+# yet published to Kafka when the run ended.
 report() {
   echo
   {
-    printf 'run\trequests\treq/s\tp50 ms\tp95 ms\tp99 ms\tfailed %%\n'
+    printf 'run\trequests\treq/s\tp50 ms\tp95 ms\tp99 ms\tfailed %%\toutbox unpublished at end\n'
     for summary in "$PREFIX"-*.json; do
-      local run
+      local run backlog
       run=$(basename "$summary" .json)
-      jq -r --arg run "${run#"$TIME"-}" '
+      backlog=$(tail -1 "${summary%.json}-samples.csv" | cut -d, -f9)
+      jq -r --arg run "${run#"$TIME"-}" --arg backlog "$backlog" '
         def ms: . * 10 | round / 10;
         .metrics as $m
         | ($m | keys[] | select(startswith("http_reqs{")) | ltrimstr("http_reqs")) as $tag
         | [$run, $m["http_reqs" + $tag].count, ($m["http_reqs" + $tag].rate | round),
            ($m["http_req_duration" + $tag] | (.med | ms), (.["p(95)"] | ms), (.["p(99)"] | ms)),
-           ($m["http_req_failed" + $tag].value * 10000 | round / 100)]
+           ($m["http_req_failed" + $tag].value * 10000 | round / 100), $backlog]
         | @tsv' "$summary"
     done
   } | column -t -s $'\t'

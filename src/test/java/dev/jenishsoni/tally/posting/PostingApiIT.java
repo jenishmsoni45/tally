@@ -255,6 +255,12 @@ class PostingApiIT {
         assertNoLines(a.id(), b.id());
     }
 
+    @Test
+    void theServiceRefusesAnEntryWithoutLinesThatSkippedTheControllerChecks() {
+        assertThatThrownBy(() -> posting.postEntry(key(), new EntryRequest(null, null, List.of())))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     private void assertBalance(UUID accountId, long expected) {
         client.get().uri("/accounts/{id}/balance", accountId)
                 .exchange()

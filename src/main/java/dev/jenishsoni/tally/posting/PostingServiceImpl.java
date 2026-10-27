@@ -113,6 +113,7 @@ class PostingServiceImpl implements PostingService {
 
     private JournalEntry post(String kind, UUID reversesId, String description, Instant effectiveAt,
             List<LineRequest> lines) {
+        requireLines(lines);
         requireBalanced(lines);
         Map<UUID, Account> touched = loadAccounts(lines);
         requireAccountCurrencies(lines, touched);
@@ -133,6 +134,13 @@ class PostingServiceImpl implements PostingService {
         }
         if (request.fromAccountId().equals(request.toAccountId())) {
             throw new IllegalArgumentException("A transfer needs two different accounts");
+        }
+    }
+
+    // The controller refuses an empty entry too; the account statements below need at least one account.
+    private void requireLines(List<LineRequest> lines) {
+        if (lines.isEmpty()) {
+            throw new IllegalArgumentException("An entry needs at least one line");
         }
     }
 

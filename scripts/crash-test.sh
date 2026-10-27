@@ -84,6 +84,10 @@ fi
 mkdir -p "$OUT"
 ./gradlew -q bootJar
 jar=$(ls build/libs/tally-*.jar | grep -v -- '-plain\.jar$')
+if [[ $(wc -l <<< "$jar") -ne 1 ]]; then
+  echo "Expected one boot jar in build/libs, found: $jar. Run ./gradlew clean first." >&2
+  exit 1
+fi
 docker compose up -d --wait
 
 start_app first

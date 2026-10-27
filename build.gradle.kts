@@ -48,3 +48,33 @@ dependencies {
 tasks.withType<Test> {
     useJUnitPlatform()
 }
+
+// A simulation sends thousands of requests, so the normal build leaves it to simulationTest.
+tasks.test {
+    useJUnitPlatform {
+        excludeTags("simulation")
+    }
+}
+
+tasks.register<Test>("simulationTest") {
+    group = "verification"
+    description = "Runs the random simulation tests, which compare the HTTP API with an in-memory model."
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform {
+        includeTags("simulation")
+    }
+    shouldRunAfter("test")
+    // A failure's message holds the seed and the last operations, so it is shown whole.
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
+    // A simulation is asked for on purpose, so an earlier result must never stand in for a new run.
+    outputs.upToDateWhen { false }
+    // -D on the Gradle command line sets a property of Gradle's own JVM, not of the test JVM, so seed (replay
+    // one seed) and seeds (how many to run) are passed on. When unset, the test uses its own defaults.
+    listOf("seed", "seeds").forEach { property ->
+        providers.systemProperty(property).orNull?.let { systemProperty(property, it) }
+    }
+}

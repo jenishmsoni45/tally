@@ -1,0 +1,10 @@
+# Grafana reads every provider file in its dashboards provisioning folder; compose.yaml mounts this one
+# next to the image's own. Path and keys follow the grafana/docker-otel-lgtm v0.37.0 README.
+apiVersion: 1
+
+providers:
+  - name: "tally"
+    type: file
+    options:
+      path: /otel-lgtm/grafana/conf/provisioning/dashboards/tally
+      foldersFromFilesStructure: false

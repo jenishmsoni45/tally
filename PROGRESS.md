@@ -9,8 +9,8 @@
 | 3 Idempotency and reversals | done, merged 2026-10-18 | phase-3-idempotency-reversals | https://github.com/jenishmsoni45/tally/pull/6 | 13 commits on the branch; 88 tests, 0 failures; the same-key test passed 20 of 20 runs (below) |
 | 4 Outbox and Kafka | done, merged 2026-10-19 | phase-4-outbox-kafka | https://github.com/jenishmsoni45/tally/pull/7 | 10 commits on the branch; 91 tests, 0 failures; `OutboxRelayIT` passed 10 of 10 runs (below) |
 | 5 Reconciliation and observability | done, merged 2026-10-27 | phase-5-reconcile-observability | https://github.com/jenishmsoni45/tally/pull/8 | 17 commits on the branch; 118 tests, 0 failures; `ReconciliationIT` passed 20 of 20 runs; Verify found both traces in Grafana and both log lines in the console by one entry id; log lines are not sent to Loki (owner's decision, see Open decisions) |
-| 6 Failure testing | done locally, awaiting push approval | phase-6-failure-testing | | 17 commits on the branch (with this one); 122 tests, 0 failures; all five scenarios pass; `DbConnectionDropIT` passed 20 of 20 runs; the crash test passed 3 of 3 runs with no drift; the failure table is in docs/failure-table.md |
-| 7 Random simulation tests | not started | | | |
+| 6 Failure testing | done, merged 2026-10-27 | phase-6-failure-testing | https://github.com/jenishmsoni45/tally/pull/9 | 17 commits on the branch; 122 tests, 0 failures; all five scenarios pass; `DbConnectionDropIT` passed 20 of 20 runs; the crash test passed 3 of 3 runs with no drift; the failure table is in docs/failure-table.md |
+| 7 Random simulation tests | in progress | phase-7-simulation-tests | | |
 | 8 Load test and one improvement | not started | | | |
 | 9 Write-up | not started | | | |
 

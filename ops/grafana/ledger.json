@@ -106,7 +106,7 @@
       "id": 3,
       "type": "timeseries",
       "title": "Posting outcomes per second",
-      "description": "posted, replayed, rejected (a 4xx refusal) or failed (anything else).",
+      "description": "posted, replayed, rejected (refused with 404, 409 or 422) or failed (anything else). A 400 is refused before the posting starts and is not counted here.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

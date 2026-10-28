@@ -3,8 +3,6 @@ package dev.jenishsoni.tally.risk;
 import java.util.Arrays;
 import java.util.Optional;
 
-import com.fasterxml.jackson.annotation.JsonValue;
-
 /** The risk engine's answer for a transfer, and the backup answer when it gives none (docs/risk-decision-call.md). */
 public enum Decision {
 
@@ -19,7 +17,6 @@ public enum Decision {
     }
 
     /** The lowercase form the contract uses on the wire, which is also the decision's outcome tag. */
-    @JsonValue
     public String wireName() {
         return wireName;
     }

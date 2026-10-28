@@ -112,7 +112,7 @@ In Grafana, in Explore with Tempo, paste the query as TraceQL and run it. Expect
 - the request trace, rooted at `http post /transfers`;
 - the relay's trace, rooted at `outbox publish`, with one `ledger.entries send` span for each entry in its batch.
 
-This entry was also replayed, and `PostingTelemetry` tags the replay's request span with the same `entry_id`, so a second trace rooted at `http post /transfers` appears too: three traces in all. The 409 request carries no `entry_id`. Tempo indexes new traces with a delay: in a run on 2026-10-28 all three were found about 30 s after the posting. If fewer show up, run the query again.
+This entry was also replayed, and `PostingTelemetry` tags the replay's request span with the same `entry_id`, so a second trace rooted at `http post /transfers` appears too: three traces in all. The 409 request carries no `entry_id`. Tempo indexes new traces with a delay: in a run on 2026-10-28 all three were found only on the sixth search, made 5 s apart. If fewer show up, run the query again.
 
 In terminal 1, the JSON log lines "Posted entry", "Replayed entry" and "Published entry" carry the same `entry_id`, each with its own trace's `traceId`. The posting lines also carry the `idempotency_key`.
 

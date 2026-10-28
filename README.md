@@ -157,7 +157,7 @@ curl -s -X POST localhost:8080/admin/reconcile -H "Authorization: Bearer $TALLY_
 
 Every error the API maps is an RFC 9457 problem (`application/problem+json`): 400 for validation or a missing `Idempotency-Key`, 401 for an admin request without the right key, 404 for an unknown id, 409 for a duplicate account code, a key reused for a different request or a second reversal, 422 for an entry the ledger refuses (unbalanced, insufficient funds, a line in a currency its account does not hold, or amounts too large to add exactly), and 503 when the database times out or is unavailable. An exception no handler maps still gets Spring Boot's plain error JSON with a 500; a catch-all problem handler is listed under Ideas in PROGRESS.md.
 
-To see a posting's trace, open Grafana's Explore, choose Tempo and search `{ span.entry_id = "<entry id>" }`. For an entry posted once it finds two traces: the HTTP request that posted the entry, and the relay's publish to Kafka. Each replay of the request adds one more request trace. Tempo indexes traces with a delay: in a run on 2026-10-28 all of them were found about 30 s after the posting.
+To see a posting's trace, open Grafana's Explore, choose Tempo and search `{ span.entry_id = "<entry id>" }`. For an entry posted once it finds two traces: the HTTP request that posted the entry, and the relay's publish to Kafka. Each replay of the request adds one more request trace. Tempo indexes traces with a delay: in a run on 2026-10-28 all of them were found only on the sixth search, made 5 s apart.
 
 ## Results
 

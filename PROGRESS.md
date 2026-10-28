@@ -11,8 +11,8 @@
 | 5 Reconciliation and observability | done, merged 2026-10-27 | phase-5-reconcile-observability | https://github.com/jenishmsoni45/tally/pull/8 | 17 commits on the branch; 118 tests, 0 failures; `ReconciliationIT` passed 20 of 20 runs; Verify found both traces in Grafana and both log lines in the console by one entry id; log lines are not sent to Loki (owner's decision, see Open decisions) |
 | 6 Failure testing | done, merged 2026-10-27 | phase-6-failure-testing | https://github.com/jenishmsoni45/tally/pull/9 | 17 commits on the branch; 122 tests, 0 failures; all five scenarios pass; `DbConnectionDropIT` passed 20 of 20 runs; the crash test passed 3 of 3 runs with no drift; the failure table is in docs/failure-table.md |
 | 7 Random simulation tests | done, merged 2026-10-27 | phase-7-simulation-tests | https://github.com/jenishmsoni45/tally/pull/10 | 16 commits on the branch; `./gradlew simulationTest` passed 10,000 operations (20 seeds x 500) in 25,940 ms of run time; `./gradlew build` 122 tests, 0 failures, without the simulation |
-| 8 Load test and one improvement | done locally, awaiting push approval | phase-8-load-test | | 19 commits on the branch (with this one); final scenario A 1,857 req/s, p95 35.8 ms; B 685 req/s, p95 95.4 ms; 0% failed; knee at 10 VUs, the pool size; one statement per step gave about 16% more A throughput (median of four alternating runs each); `./gradlew build` 123 tests, 0 failures |
-| 9 Write-up | not started | | | |
+| 8 Load test and one improvement | done, merged 2026-10-28 | phase-8-load-test | https://github.com/jenishmsoni45/tally/pull/11 | 19 commits on the branch (with this one); final scenario A 1,857 req/s, p95 35.8 ms; B 685 req/s, p95 95.4 ms; 0% failed; knee at 10 VUs, the pool size; one statement per step gave about 16% more A throughput (median of four alternating runs each); `./gradlew build` 123 tests, 0 failures |
+| 9 Write-up | in progress | phase-9-write-up | | |
 
 ## Measured results (real runs only, with date and conditions)
 

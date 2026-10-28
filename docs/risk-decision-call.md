@@ -183,7 +183,7 @@ tally:
     on-timeout-default: hold
 ```
 
-At startup, with `enabled: true`: `url` must be an absolute http(s) URL, `timeout` must be positive, and `on-timeout-default` must be `allow`, `hold` or `block`, or tally refuses to start.
+At startup, with `enabled: true`: `url` must be an absolute http(s) URL, `timeout` must be at least 1 ms, and `on-timeout-default` must be `allow`, `hold` or `block`, or tally refuses to start.
 
 ### 4.5 Observability
 

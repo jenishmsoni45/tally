@@ -4,7 +4,7 @@ Status: accepted (Phase 10)
 
 ## Context
 
-In Phase 10 a transfer can ask the risk engine, a separate service, whether it may go ahead ([docs/risk-decision-call.md](../risk-decision-call.md)). The risk engine answers allow, hold or block, or gives no decision: it can be slow, down, or send a reply tally cannot use. tally waits at most `tally.risk.timeout` (100 ms). A posting is one transaction on one of the pool's 10 connections. It claims the idempotency key, locks the touched balance rows and holds them until commit, so postings on one account queue on its lock (ADR 0002). Where the call sits decides what tally holds while it waits, and whether a refusal can still stop the money from moving.
+In Phase 10 a transfer can ask the risk engine, a separate service, whether it may go ahead ([docs/risk-decision-call.md](../risk-decision-call.md)). The risk engine answers allow, hold or block, or gives no decision: it can be slow, down, or send a reply tally cannot use. tally waits `tally.risk.timeout` (100 ms), plus a small margin for its own work and thread scheduling, before it uses the backup answer. A posting is one transaction on one of the pool's 10 connections. It claims the idempotency key, locks the touched balance rows and holds them until commit, so postings on one account queue on its lock (ADR 0002). Where the call sits decides what tally holds while it waits, and whether a refusal can still stop the money from moving.
 
 ## Decision
 

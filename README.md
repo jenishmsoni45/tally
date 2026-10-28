@@ -173,7 +173,7 @@ With the check on, `POST /transfers` asks the risk engine, a separate service, w
 
 `application.yaml` names the first two variables; the last two work through Spring Boot's relaxed binding of environment variables.
 
-With the check on, tally refuses to start if `url` is not an absolute http(s) URL, `timeout` is not positive, or `on-timeout-default` is not `allow`, `hold` or `block`.
+With the check on, tally refuses to start if `url` is not an absolute http(s) URL, `timeout` is under 1 ms, or `on-timeout-default` is not `allow`, `hold` or `block`.
 
 | The risk engine | tally answers |
 | --- | --- |
@@ -277,7 +277,7 @@ What tally does with it:
 - A dashboard with posting latency, postings per second, outcomes (posted, replayed, rejected, failed), balance lock wait, the outbox backlog and drifted accounts. Pool use is not on it; `scripts/load.sh` samples it during load runs.
 - A recount that records drift, and a saturation run that found where requests start to queue (see Results).
 
-Where tally differs: with the risk check off, tally calls no other services, so its timeouts bound its own pool, transactions, socket and Kafka sends. With it on, its one HTTP client call, to the risk engine, ends within `tally.risk.timeout`, and a missing answer becomes the backup answer. Its recount checks stored balances against their own lines, not against a partner's records; it appends what it finds to `reconciliation_drift` and never fixes a balance. There are no circuit breakers and no load shedding on the posting endpoints; both are on PLAN.md's stretch list. Only the risk check sheds: a transfer that finds 100 calls in flight gets the backup answer at once. A request waits up to 2,000 ms for one of the pool's 10 connections and then gets a 503.
+Where tally differs: with the risk check off, tally calls no other services, so its timeouts bound its own pool, transactions, socket and Kafka sends. With it on, its one HTTP client call, to the risk engine, ends within `tally.risk.timeout` plus a small margin for tally's own work and thread scheduling (`RiskDecisionIT` holds it to 300 ms over a 1,000 ms timeout), and a missing answer becomes the backup answer. Its recount checks stored balances against their own lines, not against a partner's records; it appends what it finds to `reconciliation_drift` and never fixes a balance. There are no circuit breakers and no load shedding on the posting endpoints; both are on PLAN.md's stretch list. Only the risk check sheds: a transfer that finds 100 calls in flight gets the backup answer at once. A request waits up to 2,000 ms for one of the pool's 10 connections and then gets a 503.
 
 ### Shopify, [Building Resilient GraphQL APIs Using Idempotency](https://shopify.engineering/building-resilient-graphql-apis-using-idempotency) (Todd Jefferson, 2019)
 

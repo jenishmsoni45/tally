@@ -1,0 +1,13 @@
+started: 2026-10-28 005130Z
+mode: scenarios
+commit: 79f7837
+cpu: Apple M4, 10 cores
+ram: 16 GiB
+os: macOS 27.0
+java: java version "25.0.1" 2025-10-21 LTS
+k6: k6 v2.3.0 (commit/devel, go1.27.1, darwin/arm64)
+docker: 29.9.2, 5 CPUs and 8320163840 bytes for its VM
+images: apache/kafka:4.3.1 grafana/otel-lgtm:0.37.0 postgres:18.6
+app: the boot jar with the load profile; k6, the app and the stack share this machine
+each run: a new stack with an empty database
+connection pool: 10 connections

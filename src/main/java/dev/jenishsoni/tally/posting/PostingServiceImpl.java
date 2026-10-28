@@ -2,8 +2,8 @@ package dev.jenishsoni.tally.posting;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -174,9 +174,10 @@ class PostingServiceImpl implements PostingService {
         }
     }
 
-    // In line order, so a refusal for funds names the first account, in the request, that would go short.
+    // Ascending account id as PostgreSQL orders uuid, the order the balance rows are locked in, so a refusal for
+    // funds names the same account whatever the order of the lines. UUID.compareTo is signed and would differ.
     private Map<UUID, Money> netChangePerAccount(List<LineRequest> lines) {
-        Map<UUID, Money> changes = new LinkedHashMap<>();
+        Map<UUID, Money> changes = new TreeMap<>(Comparator.comparing(UUID::toString));
         for (LineRequest line : lines) {
             changes.merge(line.accountId(), new Money(line.amount(), line.currency()), PostingServiceImpl::plus);
         }

@@ -21,7 +21,7 @@ With the risk check switched on, tally first asks the risk engine ("the guard") 
 | Who asks | tally calls the decision API itself, rather than only a stand-in in the risk engine's tests | The real end-to-end path, documented in tally |
 | Hold and block | Refuse with 403 and a problem type per outcome; the body has the `decisionId`, never the fired rules | 403 means refused by policy; 422 would say "fix your request", which a held customer can't. Fired rules stay with the risk engine so nobody can tune against them |
 | Timeout | tally waits at most 100 ms; the risk engine's budget is p99 within 50 ms | Room for a Python service on a laptop while a transfer still feels instant |
-| Backup answer | Each guard reply carries its rule set's `onTimeout`; tally remembers the latest and uses its config default, `hold`, before the first reply | The backup answer stays per rule set without a tally config change when the rules change; fail closed by default |
+| Backup answer | Each guard reply, a replayed decision included, carries the current rule set's `onTimeout`; tally remembers the latest and uses its config default, `hold`, before the first reply | The backup answer stays per rule set without a tally config change when the rules change, and a retried old key can't bring back an older rule set's; fail closed by default |
 | Backup refusal | A refusal by the backup answer is a 503, not a 403 | Nothing was decided, and a retry with the same key asks the guard again |
 | Join | tally stores `decisionId` and `riskCheck` on the entry and sends both in the 201 and the event | tally keeps an audit record of which decision let each transfer through, and money that moved unchecked is easy to find |
 | Scope | Only `POST /transfers` asks the guard | Customer money movement is what fraud targets; entries and reversals are bookkeeping |
@@ -73,7 +73,8 @@ A 200 body:
 
 - `decisionId` is a UUID. `decision` and `onTimeout` are each one of `allow`, `hold`, `block`. A 200 that breaks any of these is no decision.
 - tally uses `decisionId`, `decision` and `onTimeout`. It does not store, log or return `ruleSet` or `fired`.
-- The same `requestId` with the same `fromAccountId`, `toAccountId`, `amount` and `currency` always gets the same 200 body back, whenever it is asked. `requestedAt` is not part of that match.
+- The same `requestId` with the same `fromAccountId`, `toAccountId`, `amount` and `currency` always gets the same `decisionId`, `decision`, `ruleSet` and `fired` back, whenever it is asked. `requestedAt` is not part of that match.
+- `onTimeout` is always the current rule set's, in a replayed decision too, so a retried old key can't bring back an older rule set's backup answer (3.4).
 
 ### 3.3 tally → customer
 
@@ -111,6 +112,7 @@ Content-Type: application/problem+json
 ### 3.4 The backup answer
 
 - tally keeps the `onTimeout` of the latest valid 200 in memory. Before the first one, and after a restart, it uses `tally.risk.on-timeout-default` (default `hold`).
+- Every 200 carries the current rule set's `onTimeout` (3.2), so the latest reply names the backup answer in force. Two replies in flight while the rule set changes can arrive in either order, so for a moment tally can keep the older rule set's value; the next reply puts it right.
 - Backup `allow`: post the transfer with `riskCheck: fallback` and `decisionId: null`.
 - Backup `hold` or `block`: 503 `risk-unavailable` (3.3). Nothing posts.
 
@@ -217,7 +219,7 @@ This relies on Docker Desktop forwarding `host.docker.internal` to the Mac, whic
 
 For context; built in the risk engine's own phases.
 
-- Serves `POST /v1/decisions` as in 3.1 and 3.2, including the 409 and `onTimeout` in every 200.
+- Serves `POST /v1/decisions` as in 3.1 and 3.2, including the 409 and the current rule set's `onTimeout` in every 200, a replayed decision included.
 - Its ledger stub mimics this behaviour and the two event fields, so its CI can test without tally.
 - After Phase 10, captures a fixture from a real tally event (with the new fields) and tests that its stub's events parse the same way.
 - Its consumer reads `ledger.entries` through the container listener (4.6) when it runs against tally.

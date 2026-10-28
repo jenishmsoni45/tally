@@ -14,7 +14,7 @@ In Phase 10 a transfer can ask the risk engine, a separate service, whether it m
   2. A replay check: whether the `Idempotency-Key` has a saved response, read outside any transaction. If it has, the existing transactional path replays it or answers 409, and the risk engine is not asked.
   3. The call, with no transaction open and no pooled connection held.
   4. The outcome. Allow posts the transfer with `riskCheck` `decided` and the `decisionId`. Hold or block answers 403 with the `decisionId`. The risk engine's 409 becomes tally's key-conflict 409. No decision uses the backup answer.
-- The backup answer is the `onTimeout` of the risk engine's latest valid reply, kept in memory, or `tally.risk.on-timeout-default` (`hold`) before the first reply. Backup allow posts with `riskCheck` `fallback` and `decisionId` null. Backup hold or block answers 503 `risk-unavailable`.
+- The backup answer is the `onTimeout` of the risk engine's latest valid reply, kept in memory, or `tally.risk.on-timeout-default` (`hold`) before the first reply. Every reply, a replayed decision included, carries the current rule set's `onTimeout`. Backup allow posts with `riskCheck` `fallback` and `decisionId` null. Backup hold or block answers 503 `risk-unavailable`.
 - The posting transaction is unchanged apart from writing `decision_id` and `risk_check` on the entry (`V7`).
 - Only `POST /transfers` asks; entries and reversals get `riskCheck` `none`. The check is off by default (`tally.risk.enabled`).
 
@@ -32,7 +32,7 @@ Costs:
 - A refusal by the backup answer is a 503, not a 403, because nothing was decided. The key is not saved, so a retry with the same key asks the risk engine again.
 - `ledger.posting.duration` times the whole HTTP path, so with the check on it includes the call. `ledger.risk.duration` times the call alone.
 - Two first requests with one key both pass the replay check and both ask the risk engine, which gives both the same answer. The claim inside the transaction then lets one post and the other replay.
-- The backup answer lives in memory per instance, so after a restart it is the configured default until the first reply.
+- The backup answer lives in memory per instance, so after a restart it is the configured default until the first reply. Two replies in flight while the risk engine changes its rule set can arrive in either order, so for a moment tally can keep the older rule set's backup answer, until the next reply.
 
 ## Alternatives
 

@@ -120,9 +120,10 @@ write_conditions() {
   } > "$PREFIX-conditions.txt"
 }
 
-# The database side, read as the owner, who sees every session.
+# The database side, read as the owner, who sees every session. Four empty cells when it does not answer, so the
+# row keeps its columns.
 db_sample() {
-  compose exec -T postgres psql -U "$DB_USER" -d tally -tA -F, <<'SQL'
+  compose exec -T postgres psql -U "$DB_USER" -d tally -tA -F, <<'SQL' || echo ',,,'
 select count(*) filter (where state = 'active'),
        count(*) filter (where wait_event_type = 'Lock'),
        count(*) filter (where state = 'idle in transaction'),
@@ -132,8 +133,14 @@ where usename = 'tally_app';
 SQL
 }
 
+# Three empty cells when docker stats fails, for the same reason.
 container_cpu() {
-  docker stats --no-stream --format '{{.CPUPerc}}' "$postgres_id" "$kafka_id" "$lgtm_id" | tr -d '%' | paste -sd, -
+  local cpu
+  if cpu=$(docker stats --no-stream --format '{{.CPUPerc}}' "$postgres_id" "$kafka_id" "$lgtm_id"); then
+    tr -d '%' <<< "$cpu" | paste -sd, -
+  else
+    echo ',,'
+  fi
 }
 
 # A reading that fails (the app not answering, say) leaves its cells empty rather than stopping the run.

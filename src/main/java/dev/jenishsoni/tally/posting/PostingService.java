@@ -22,13 +22,22 @@ import java.util.UUID;
  */
 public interface PostingService {
 
+    /** Posts a transfer with riskCheck none, as when the risk check is off. */
     PostingResult postTransfer(String idempotencyKey, TransferRequest request);
 
+    /**
+     * Posts a transfer with riskCheck and decisionId taken from the given risk. The risk engine is asked
+     * before this call, by a caller outside its transaction, so no lock is held while it answers.
+     */
+    PostingResult postTransfer(String idempotencyKey, TransferRequest request, EntryRisk risk);
+
+    /** Posts an entry with riskCheck none: only transfers are risk-checked. */
     PostingResult postEntry(String idempotencyKey, EntryRequest request);
 
     /**
      * Posts the mirror image of an entry's lines, which undoes the entry's effect on every account.
      * A reversal can itself be reversed once, which applies the original entry's effect again.
+     * The reversal has riskCheck none, even when the entry it undoes was risk-checked.
      */
     PostingResult reverseEntry(String idempotencyKey, UUID entryId);
 

@@ -104,6 +104,7 @@ management:
         # across instances.
         "[ledger.posting.duration]": true
         "[ledger.lock.wait]": true
+        "[ledger.risk.duration]": true
   otlp:
     metrics:
       export:
@@ -123,3 +124,17 @@ tally:
     # unset, every admin request is refused. Set TALLY_ADMIN_API_KEY to a random value of at least
     # 32 characters, for example `openssl rand -hex 32`.
     api-key: ${TALLY_ADMIN_API_KEY:}
+  risk:
+    # Off by default, so tally behaves exactly as before unless this is switched on: without the risk engine,
+    # every existing test, the simulation and the load runs are unchanged.
+    enabled: ${TALLY_RISK_ENABLED:false}
+    # The risk engine's decision API. 8000 is a placeholder until the risk engine fixes its port;
+    # it must not be one of tally's ports (8080, 5432, 9092, 9094, 3000, 4317, 4318).
+    url: ${TALLY_RISK_URL:http://localhost:8000}
+    # The longest tally waits for a decision before using the backup answer. Starting value, not a measurement:
+    # room for a Python service on a laptop, whose own budget is a p99 within 50 ms, while a transfer still feels
+    # instant. The deadline covers the whole call, from connecting to reading the body.
+    timeout: 100ms
+    # The backup answer until the risk engine's first reply names one. hold fails closed: before tally has heard
+    # from the risk engine, a transfer it can't get a decision for is refused with a 503, not posted unchecked.
+    on-timeout-default: hold

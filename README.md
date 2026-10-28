@@ -47,9 +47,10 @@ flowchart LR
     telemetry -.->|"traces and metrics over OTLP"| lgtm
 ```
 
-- Packages by feature under `dev.jenishsoni.tally`: `common`, `account`, `posting`, `balance`, `idempotency`, `outbox`, `reconcile`. A feature's controller, service and repository live in its package, and no feature calls another feature's repository: posting goes through `AccountService`, `BalanceService`, `IdempotencyStore` and `OutboxWriter`. The recount reads `balances` and `journal_lines` with its own SQL on purpose, so it stays independent of the code it checks.
+- Packages by feature under `dev.jenishsoni.tally`: `common`, `account`, `posting`, `balance`, `idempotency`, `outbox`, `reconcile`, `risk`. A feature's controller, service and repository live in its package, and no feature calls another feature's repository: posting goes through `AccountService`, `BalanceService`, `IdempotencyStore` and `OutboxWriter`, and asks the risk engine through `RiskClient`. The recount reads `balances` and `journal_lines` with its own SQL on purpose, so it stays independent of the code it checks.
 - The database is the source of truth and Kafka is a copy of what committed. The outbox row is written in the posting transaction, so an event exists exactly when its entry committed. The relay publishes it afterwards and marks it published only once Kafka has acknowledged it. Delivery is at least once, consumers dedupe on `entry_id`, and Kafka orders messages per entry, not per account ([docs/design.md](docs/design.md)).
 - A posting is one transaction that follows the recipe in [PostingService.java](src/main/java/dev/jenishsoni/tally/posting/PostingService.java): validate, claim the idempotency key, lock the touched balance rows with `SELECT ... FOR UPDATE` in ascending `account_id` order, check that no account that disallows negative balances goes below zero, insert the entry and its lines, update the balances, insert the outbox row, save the response, commit. Bean Validation runs before the claim; the service's own checks (the entry balances, its accounts exist and hold its currencies) run after it, so a key reused for a different request is a 409 even when that request would also be refused with a 422 or 404.
+- A transfer can first ask the risk engine, a separate service, whether it may go ahead. The check is off by default. The call is made before the posting transaction opens, so tally holds no transaction, row lock or pooled connection while it waits ([docs/risk-decision-call.md](docs/risk-decision-call.md), [ADR 0007](docs/adr/0007-risk-call-before-the-posting-transaction.md)).
 - Every entry sums to zero per currency, checked in code and again at commit by a deferred constraint trigger. A second deferred trigger refuses an entry with no lines, and a composite foreign key keeps each line in its account's currency ([V2__journal.sql](src/main/resources/db/migration/V2__journal.sql)).
 - Money is a `long` count of cents plus a 3-letter currency code. Arithmetic uses `Math.addExact` and `Math.negateExact`, so an overflow is refused with a 422 instead of wrapping around ([Money.java](src/main/java/dev/jenishsoni/tally/common/Money.java)).
 - The app connects as `tally_app`, which has SELECT and INSERT on the journal tables and no UPDATE or DELETE ([V3__app_role.sql](src/main/resources/db/migration/V3__app_role.sql)). Flyway runs as the schema owner.
@@ -61,7 +62,7 @@ You need:
 
 - JDK 25. The build asks Gradle for a Java 25 toolchain and has no toolchain resolver in `settings.gradle.kts`, so Gradle does not download one: JDK 25 must already be installed where Gradle finds it, for example as `JAVA_HOME`. PLAN.md suggests Eclipse Temurin 25.
 - Docker, running. On macOS, if you clone into a privacy-protected folder such as Desktop, Docker needs access to that folder, because `compose.yaml` mounts the Grafana dashboard from `ops/grafana/`.
-- Free local ports 5432, 9092, 3000, 4317 and 4318 for the Compose stack, and 8080 for the app.
+- Free local ports 5432, 9092, 9094, 3000, 4317 and 4318 for the Compose stack, and 8080 for the app. 9094 is Kafka's second listener, for containers of other Compose projects.
 - `curl`, `jq` and `openssl` for the examples below.
 
 ```sh
@@ -155,9 +156,39 @@ curl -s -X POST "localhost:8080/entries/$ENTRY/reverse" -H "Idempotency-Key: rev
 curl -s -X POST localhost:8080/admin/reconcile -H "Authorization: Bearer $TALLY_ADMIN_API_KEY" | jq .
 ```
 
-Every error the API maps is an RFC 9457 problem (`application/problem+json`): 400 for validation or a missing `Idempotency-Key`, 401 for an admin request without the right key, 404 for an unknown id, 409 for a duplicate account code, a key reused for a different request or a second reversal, 422 for an entry the ledger refuses (unbalanced, insufficient funds, a line in a currency its account does not hold, or amounts too large to add exactly), and 503 when the database times out or is unavailable. An exception no handler maps still gets Spring Boot's plain error JSON with a 500; a catch-all problem handler is listed under Ideas in PROGRESS.md.
+Every error the API maps is an RFC 9457 problem (`application/problem+json`): 400 for validation or a missing `Idempotency-Key`, 401 for an admin request without the right key, 403 for a transfer the risk check held or blocked (the body has its `decisionId`), 404 for an unknown id, 409 for a duplicate account code, a key reused for a different request or a second reversal, 422 for an entry the ledger refuses (unbalanced, insufficient funds, a line in a currency its account does not hold, or amounts too large to add exactly), and 503 when the database times out or is unavailable, or when the risk check gave no decision and its backup answer refused the transfer. The 403 and the risk check's 503 happen only with the check on (see [Risk check](#risk-check)). An exception no handler maps still gets Spring Boot's plain error JSON with a 500; a catch-all problem handler is listed under Ideas in PROGRESS.md.
 
 To see a posting's trace, open Grafana's Explore, choose Tempo and search `{ span.entry_id = "<entry id>" }`. For an entry posted once it finds two traces: the HTTP request that posted the entry, and the relay's publish to Kafka. Each replay of the request adds one more request trace. Tempo indexes traces with a delay: in a run on 2026-10-28 all of them were found only on the sixth search, made 5 s apart.
+
+## Risk check
+
+With the check on, `POST /transfers` asks the risk engine, a separate service, whether the transfer may go ahead, and the risk engine answers allow, hold or block. tally asks after validation and after checking that the `Idempotency-Key` has no saved response to replay, and before it opens the posting transaction, so it holds no transaction, row lock or pooled connection while it waits. When the risk engine gives no decision (no answer within `tally.risk.timeout`, an error, or a reply tally cannot use), tally uses a backup answer: the `onTimeout` named in the risk engine's latest reply (every reply names the current rule set's), or `tally.risk.on-timeout-default` before the first reply and after a restart. A transfer the risk engine allowed can still be refused by tally's own checks (404 or 422), and `POST /entries` and reversals never ask. The check is off by default, and tally then behaves exactly as before.
+
+| Setting | Environment variable | Default | What it does |
+| --- | --- | --- | --- |
+| `tally.risk.enabled` | `TALLY_RISK_ENABLED` | `false` | Turns the check on |
+| `tally.risk.url` | `TALLY_RISK_URL` | `http://localhost:8000` | The risk engine's base URL; tally posts to `{url}/v1/decisions` |
+| `tally.risk.timeout` | `TALLY_RISK_TIMEOUT` | `100ms` | The longest tally waits for a decision |
+| `tally.risk.on-timeout-default` | `TALLY_RISK_ONTIMEOUTDEFAULT` | `hold` | The backup answer until the risk engine's first reply names one |
+
+`application.yaml` names the first two variables; the last two work through Spring Boot's relaxed binding of environment variables.
+
+With the check on, tally refuses to start if `url` is not an absolute http(s) URL, `timeout` is under 1 ms, or `on-timeout-default` is not `allow`, `hold` or `block`.
+
+| The risk engine | tally answers |
+| --- | --- |
+| allow | 201: the transfer posts with `riskCheck` `decided` and the risk engine's `decisionId` |
+| hold | 403, type `/problems/transfer-held`, with `decisionId`; nothing posts |
+| block | 403, type `/problems/transfer-blocked`, with `decisionId`; nothing posts |
+| 409: the key was already decided for a different transfer | tally's key-conflict 409 |
+| no decision (no answer within the timeout, an error, or a reply tally cannot use), backup answer allow | 201: the transfer posts with `riskCheck` `fallback` and `decisionId` null |
+| no decision, backup answer hold or block | 503, type `/problems/risk-unavailable`; nothing posts |
+
+A refused transfer (403 or 503) saves no idempotency key, so a retry with the same key asks the risk engine again. The risk engine keeps its own answer per key, though: once it has decided a key, the same key with a different transfer is a 409, even when tally refused the first one with a 404 or 422. With the check off, such a key can be reused for a corrected request. With the check on and nothing listening on the URL, every transfer gets the backup answer, which is `hold` by default, so a 503. At most 100 calls to the risk engine are in flight at once, and a transfer over that gets the backup answer at once rather than waiting. tally closes a connection to the risk engine after 4 s idle, below the 5 s for which the contract has the risk engine keep one open; the setting, `jdk.httpclient.keepalive.timeout`, is set in `main` and applies to every JDK HTTP client in tally. Entries posted with the check off, general entries and reversals have `riskCheck` `none` and `decisionId` null. Both fields are in the 201 body, the saved response and the Kafka event, and a replay of a response saved before Phase 10 shows them as null and `none`.
+
+The timer `ledger.risk.duration` times each call, tagged with its outcome (`allow`, `hold`, `block`, `conflict`, `timeout`, `unavailable` or `invalid`), and the dashboard has a panel for it. The "Posted entry" log line carries `decision_id`, and each backup answer logs one WARN line. `ledger.posting.duration` still times the whole request, so with the check on it includes the wait for the risk engine.
+
+The contract and the reasons are in [docs/risk-decision-call.md](docs/risk-decision-call.md) and [ADR 0007](docs/adr/0007-risk-call-before-the-posting-transaction.md).
 
 ## Results
 
@@ -240,13 +271,13 @@ The post recommends lower timeouts for calls to other services ("an open timeout
 
 What tally does with it:
 
-- Explicit timeouts, with the reason for each written next to it in `application.yaml` or the code: 2,000 ms to get a pooled connection, 5 s per posting transaction, 10 s per relay batch, 30 s for the recount, a 35 s socket read timeout, and Kafka sends bounded by `delivery.timeout.ms` 3000, `request.timeout.ms` 2000 and `max.block.ms` 1000.
+- Explicit timeouts, with the reason for each written next to it in `application.yaml` or the code: 2,000 ms to get a pooled connection, 5 s per posting transaction, 10 s per relay batch, 30 s for the recount, a 35 s socket read timeout, Kafka sends bounded by `delivery.timeout.ms` 3000, `request.timeout.ms` 2000 and `max.block.ms` 1000, and 100 ms for the risk check's call when it is on, with at most 100 such calls in flight.
 - JSON console logs that carry `traceId`, `entry_id` and `idempotency_key`, so one posting attempt can be followed across lines and into its trace.
 - An `Idempotency-Key` on every posting endpoint.
-- A dashboard with posting latency, postings per second, outcomes (posted, replayed, rejected, failed), balance lock wait, the outbox backlog and drifted accounts. Pool use is not on it; `scripts/load.sh` samples it during load runs.
+- A dashboard with posting latency, postings per second, outcomes (posted, replayed, rejected, failed), balance lock wait, the outbox backlog, drifted accounts, and risk check calls by outcome with their p99. Pool use is not on it; `scripts/load.sh` samples it during load runs.
 - A recount that records drift, and a saturation run that found where requests start to queue (see Results).
 
-Where tally differs: tally calls no other services, so its timeouts bound its own pool, transactions, socket and Kafka sends, not HTTP clients. Its recount checks stored balances against their own lines, not against a partner's records; it appends what it finds to `reconciliation_drift` and never fixes a balance. There are no circuit breakers and no load shedding; both are on PLAN.md's stretch list. A request waits up to 2,000 ms for one of the pool's 10 connections and then gets a 503.
+Where tally differs: with the risk check off, tally calls no other services, so its timeouts bound its own pool, transactions, socket and Kafka sends. With it on, its one HTTP client call, to the risk engine, ends within `tally.risk.timeout` plus a small margin for tally's own work and thread scheduling (`RiskDecisionIT` holds it to 300 ms over a 1,000 ms timeout), and a missing answer becomes the backup answer. Its recount checks stored balances against their own lines, not against a partner's records; it appends what it finds to `reconciliation_drift` and never fixes a balance. There are no circuit breakers and no load shedding on the posting endpoints; both are on PLAN.md's stretch list. Only the risk check sheds: a transfer that finds 100 calls in flight gets the backup answer at once. A request waits up to 2,000 ms for one of the pool's 10 connections and then gets a 503.
 
 ### Shopify, [Building Resilient GraphQL APIs Using Idempotency](https://shopify.engineering/building-resilient-graphql-apis-using-idempotency) (Todd Jefferson, 2019)
 
@@ -254,12 +285,13 @@ The post has every mutation take an idempotency key that uniquely identifies the
 
 What tally does with it: every posting endpoint requires an `Idempotency-Key`, and a completed posting's response is saved in the same transaction as its entry and replayed on every retry.
 
-Where tally differs: a concurrent request with the same key does not get a 409. Its `insert ... on conflict do nothing` waits for the first request's uncommitted row, then finds the saved response and replays it. In `RetryStormIT` (2026-10-27), 50 identical requests at once gave 50 answers of 201 with identical bodies and one entry. A key reused for a different request is a 409; the post does not cover that case. The Wealthsimple post refuses it too, as a validation error. There are no recovery points, because a posting makes no external calls and is one database transaction that commits whole or not at all. Only a completed posting saves its key: a refused one (404, 422) rolls back with it and runs again on retry.
+Where tally differs: a concurrent request with the same key does not get a 409. Its `insert ... on conflict do nothing` waits for the first request's uncommitted row, then finds the saved response and replays it. In `RetryStormIT` (2026-10-27), 50 identical requests at once gave 50 answers of 201 with identical bodies and one entry. A key reused for a different request is a 409; the post does not cover that case. The Wealthsimple post refuses it too, as a validation error. There are no recovery points, because the posting transaction makes no external calls (the risk check runs before it and saves nothing) and commits whole or not at all. Only a completed posting saves its key: a refused one (404, 422, or the risk check's 403 and 503) saves none and runs again on retry.
 
 ## More
 
-- [docs/adr/](docs/adr/): the six decisions: plain SQL over JPA (0001), sorted row locks over SERIALIZABLE (0002), outbox over dual writes (0003), long cents over BigDecimal (0004), append-only entries with reversals (0005), idempotency key semantics (0006).
+- [docs/adr/](docs/adr/): the seven decisions: plain SQL over JPA (0001), sorted row locks over SERIALIZABLE (0002), outbox over dual writes (0003), long cents over BigDecimal (0004), append-only entries with reversals (0005), idempotency key semantics (0006), risk call before the posting transaction (0007).
 - [docs/design.md](docs/design.md): event ordering and delivery.
+- [docs/risk-decision-call.md](docs/risk-decision-call.md): the risk check's contract, behaviour and reasons.
 - [docs/failure-table.md](docs/failure-table.md): each failure scenario, what failed first, the root cause and the fix.
 - [docs/demo-script.md](docs/demo-script.md): a 2-minute demo.
 - [PROGRESS.md](PROGRESS.md): every measured result with its date and conditions, what broke in each phase, open decisions and ideas.

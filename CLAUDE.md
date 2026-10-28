@@ -71,7 +71,7 @@ Files: PLAN.md is the build plan. PROGRESS.md holds status and measured results.
 
 ## API and errors
 - JSON over HTTP. IDs are UUIDs. Amounts are integer cents. Timestamps are UTC ISO-8601.
-- Every error is an RFC 9457 `ProblemDetail` from one `@RestControllerAdvice`. Status codes: 400 validation or missing Idempotency-Key, 404 unknown id, 409 duplicate code or key conflict or second reversal, 422 unbalanced entry or insufficient funds, 503 database timeout or unavailable. Never leak stack traces, SQL or internal class names in a response.
+- Every error is an RFC 9457 `ProblemDetail` from one `@RestControllerAdvice`. Status codes: 400 validation or missing Idempotency-Key, 403 transfer held or blocked by the risk check, 404 unknown id, 409 duplicate code or key conflict or second reversal, 422 unbalanced entry or insufficient funds, 503 database timeout or unavailable or risk check unavailable. Never leak stack traces, SQL or internal class names in a response.
 - Admin endpoints (`/admin/*`) require the API key from config. Compare keys in constant time.
 
 ## Code quality bar

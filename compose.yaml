@@ -31,16 +31,20 @@ services:
   # Single-node KRaft: one container is both broker and controller, no ZooKeeper.
   # Spring Boot has no Docker Compose service connection for Kafka, so the app
   # reaches it through the default spring.kafka.bootstrap-servers=localhost:9092.
+  # DOCKER is for containers in other Compose projects, such as the risk engine's
+  # consumer: inside them localhost:9092 is the container itself. Docker Desktop
+  # forwards host.docker.internal to the host, where 9094 is published.
   kafka:
     image: apache/kafka:4.3.1
     ports:
       - "127.0.0.1:9092:9092"
+      - "127.0.0.1:9094:9094"
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: HOST://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_LISTENERS: HOST://:9092,CONTROLLER://:9093,DOCKER://:9094
+      KAFKA_ADVERTISED_LISTENERS: HOST://localhost:9092,DOCKER://host.docker.internal:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: HOST:PLAINTEXT,CONTROLLER:PLAINTEXT,DOCKER:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: HOST
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093

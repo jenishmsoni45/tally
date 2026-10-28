@@ -20,10 +20,11 @@ class JournalRepository {
     }
 
     /** A missing effectiveAt becomes the transaction's start time. */
-    StoredEntry insertEntry(UUID id, String kind, UUID reversesId, String description, Instant effectiveAt) {
+    StoredEntry insertEntry(UUID id, String kind, UUID reversesId, String description, Instant effectiveAt,
+            EntryRisk risk) {
         return jdbc.sql("""
-                insert into journal_entries (id, kind, reverses_id, description, effective_at)
-                values (:id, :kind, :reversesId, :description, coalesce(:effectiveAt, now()))
+                insert into journal_entries (id, kind, reverses_id, description, effective_at, decision_id, risk_check)
+                values (:id, :kind, :reversesId, :description, coalesce(:effectiveAt, now()), :decisionId, :riskCheck)
                 returning effective_at, created_at
                 """)
                 .param("id", id)
@@ -31,6 +32,8 @@ class JournalRepository {
                 .param("reversesId", reversesId)
                 .param("description", description)
                 .param("effectiveAt", effectiveAt == null ? null : OffsetDateTime.ofInstant(effectiveAt, ZoneOffset.UTC))
+                .param("decisionId", risk.decisionId())
+                .param("riskCheck", risk.riskCheck())
                 .query((rs, row) -> new StoredEntry(
                         rs.getObject("effective_at", OffsetDateTime.class).toInstant(),
                         rs.getObject("created_at", OffsetDateTime.class).toInstant()))
@@ -53,7 +56,7 @@ class JournalRepository {
 
     Optional<JournalEntry> findEntry(UUID id) {
         return jdbc.sql("""
-                select kind, reverses_id, description, effective_at, created_at
+                select kind, reverses_id, description, effective_at, created_at, decision_id, risk_check
                 from journal_entries
                 where id = :id
                 """)
@@ -63,10 +66,12 @@ class JournalRepository {
                         rs.getObject("reverses_id", UUID.class),
                         rs.getString("description"),
                         rs.getObject("effective_at", OffsetDateTime.class).toInstant(),
-                        rs.getObject("created_at", OffsetDateTime.class).toInstant()))
+                        rs.getObject("created_at", OffsetDateTime.class).toInstant(),
+                        rs.getObject("decision_id", UUID.class),
+                        rs.getString("risk_check")))
                 .optional()
                 .map(row -> new JournalEntry(id, row.kind(), row.reversesId(), row.description(),
-                        row.effectiveAt(), row.createdAt(), findLines(id)));
+                        row.effectiveAt(), row.createdAt(), row.decisionId(), row.riskCheck(), findLines(id)));
     }
 
     boolean existsReversalOf(UUID entryId) {
@@ -91,7 +96,7 @@ class JournalRepository {
     }
 
     private record EntryRow(String kind, UUID reversesId, String description, Instant effectiveAt,
-            Instant createdAt) {
+            Instant createdAt, UUID decisionId, String riskCheck) {
     }
 
 }

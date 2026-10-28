@@ -35,6 +35,9 @@ class PostingServiceImpl implements PostingService {
     // Every posting announces the same event type; the entry's kind is in the payload.
     private static final String ENTRY_POSTED = "entry.posted";
 
+    // Also the answer when the risk engine has decided the key for a different transfer.
+    static final String KEY_REUSED = "Idempotency-Key was already used for a different request";
+
     private final AccountService accounts;
     private final BalanceService balances;
     private final JournalRepository journal;
@@ -55,19 +58,28 @@ class PostingServiceImpl implements PostingService {
     @Override
     @Transactional
     public PostingResult postTransfer(String idempotencyKey, TransferRequest request) {
+        return postTransfer(idempotencyKey, request, EntryRisk.NONE);
+    }
+
+    // The risk stays out of the request hash: the key names the request, and two attempts at one key can get
+    // different risk answers (a decision and a backup answer), which must replay rather than conflict.
+    @Override
+    @Transactional
+    public PostingResult postTransfer(String idempotencyKey, TransferRequest request, EntryRisk risk) {
         requireValidTransfer(request);
         List<LineRequest> lines = List.of(
                 new LineRequest(request.fromAccountId(), Math.negateExact(request.amount()), request.currency()),
                 new LineRequest(request.toAccountId(), request.amount(), request.currency()));
         return postOnce(idempotencyKey, "transfer", request,
-                () -> post("transfer", null, request.description(), request.effectiveAt(), lines));
+                () -> post("transfer", null, request.description(), request.effectiveAt(), lines, risk));
     }
 
     @Override
     @Transactional
     public PostingResult postEntry(String idempotencyKey, EntryRequest request) {
         return postOnce(idempotencyKey, "entry", request,
-                () -> post("entry", null, request.description(), request.effectiveAt(), request.lines()));
+                () -> post("entry", null, request.description(), request.effectiveAt(), request.lines(),
+                        EntryRisk.NONE));
     }
 
     @Override
@@ -76,7 +88,7 @@ class PostingServiceImpl implements PostingService {
         return postOnce(idempotencyKey, "reverse", entryId, () -> {
             JournalEntry original = journal.findEntry(entryId)
                     .orElseThrow(() -> new NotFoundException("Entry " + entryId + " not found"));
-            return post("reversal", entryId, "Reversal of " + entryId, null, mirrorOf(original));
+            return post("reversal", entryId, "Reversal of " + entryId, null, mirrorOf(original), EntryRisk.NONE);
         });
     }
 
@@ -88,7 +100,7 @@ class PostingServiceImpl implements PostingService {
             case Claim.Claimed _ -> announceAndSave(idempotencyKey, posting.get());
             case Claim.Replay replay -> replayed(replay);
             case Claim.Conflict _ ->
-                throw new ConflictException("Idempotency-Key was already used for a different request");
+                throw new ConflictException(KEY_REUSED);
         };
     }
 
@@ -102,7 +114,17 @@ class PostingServiceImpl implements PostingService {
 
     private PostingResult replayed(Claim.Replay replay) {
         JournalEntry entry = json.readValue(replay.body(), JournalEntry.class);
-        return new PostingResult(replay.status(), entry, true);
+        return new PostingResult(replay.status(), withRiskOfUncheckedEntry(entry), true);
+    }
+
+    // A response saved before V7 has no risk fields, and V7 gave its entry's row risk_check none; the replay agrees.
+    private static JournalEntry withRiskOfUncheckedEntry(JournalEntry saved) {
+        if (saved.riskCheck() != null) {
+            return saved;
+        }
+        return new JournalEntry(saved.id(), saved.kind(), saved.reversesId(), saved.description(),
+                saved.effectiveAt(), saved.createdAt(), EntryRisk.NONE.decisionId(), EntryRisk.NONE.riskCheck(),
+                saved.lines());
     }
 
     private List<LineRequest> mirrorOf(JournalEntry original) {
@@ -112,7 +134,7 @@ class PostingServiceImpl implements PostingService {
     }
 
     private JournalEntry post(String kind, UUID reversesId, String description, Instant effectiveAt,
-            List<LineRequest> lines) {
+            List<LineRequest> lines, EntryRisk risk) {
         requireLines(lines);
         requireBalanced(lines);
         Map<UUID, Account> touched = loadAccounts(lines);
@@ -122,7 +144,7 @@ class PostingServiceImpl implements PostingService {
         Map<UUID, Long> current = balances.lockBalances(changes.keySet());
         requireNotReversedYet(reversesId);
         Map<UUID, Long> updated = requireNoOverdraft(touched, changes, current);
-        JournalEntry entry = insertEntry(kind, reversesId, description, effectiveAt, lines);
+        JournalEntry entry = insertEntry(kind, reversesId, description, effectiveAt, lines, risk);
         balances.storeBalances(updated);
         return entry;
     }
@@ -210,15 +232,17 @@ class PostingServiceImpl implements PostingService {
 
     // Step 5. Lines go in only after the balance locks are held, so line ids on one account follow commit order.
     private JournalEntry insertEntry(String kind, UUID reversesId, String description, Instant effectiveAt,
-            List<LineRequest> lines) {
+            List<LineRequest> lines, EntryRisk risk) {
         UUID id = UUID.randomUUID();
-        JournalRepository.StoredEntry stored = journal.insertEntry(id, kind, reversesId, description, effectiveAt);
+        JournalRepository.StoredEntry stored = journal.insertEntry(id, kind, reversesId, description, effectiveAt,
+                risk);
         List<JournalLine> saved = new ArrayList<>();
         for (LineRequest line : lines) {
             long lineId = journal.insertLine(id, line);
             saved.add(new JournalLine(lineId, line.accountId(), line.amount(), line.currency()));
         }
-        return new JournalEntry(id, kind, reversesId, description, stored.effectiveAt(), stored.createdAt(), saved);
+        return new JournalEntry(id, kind, reversesId, description, stored.effectiveAt(), stored.createdAt(),
+                risk.decisionId(), risk.riskCheck(), saved);
     }
 
     // Overflow must become a refusal, not a wrapped number or a 500.

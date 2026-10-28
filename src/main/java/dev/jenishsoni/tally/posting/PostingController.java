@@ -19,17 +19,19 @@ class PostingController {
     private static final String KEY_PATTERN = "[\\x21-\\x7E]{1,255}";
 
     private final PostingService service;
+    private final TransferOrchestrator transfers;
     private final PostingTelemetry telemetry;
 
-    PostingController(PostingService service, PostingTelemetry telemetry) {
+    PostingController(PostingService service, TransferOrchestrator transfers, PostingTelemetry telemetry) {
         this.service = service;
+        this.transfers = transfers;
         this.telemetry = telemetry;
     }
 
     @PostMapping("/transfers")
     ResponseEntity<JournalEntry> transfer(@RequestHeader("Idempotency-Key") @Pattern(regexp = KEY_PATTERN) String key,
             @Valid @RequestBody TransferRequest request) {
-        return respond(telemetry.observe("transfer", key, () -> service.postTransfer(key, request)));
+        return respond(telemetry.observe("transfer", key, () -> transfers.postTransfer(key, request)));
     }
 
     @PostMapping("/entries")

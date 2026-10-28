@@ -9,7 +9,9 @@ import org.springframework.stereotype.Component;
 
 import dev.jenishsoni.tally.common.ConflictException;
 import dev.jenishsoni.tally.common.NotFoundException;
+import dev.jenishsoni.tally.common.RiskUnavailableException;
 import dev.jenishsoni.tally.common.TelemetryKeys;
+import dev.jenishsoni.tally.common.TransferRefusedException;
 import dev.jenishsoni.tally.common.UnprocessableException;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.Meter;
@@ -73,8 +75,11 @@ class PostingTelemetry {
             PostingResult result = posting.get();
             outcome = result.replayed() ? REPLAYED : POSTED;
             return result;
-        } catch (ConflictException | UnprocessableException | NotFoundException e) {
+        } catch (ConflictException | UnprocessableException | NotFoundException | TransferRefusedException e) {
             outcome = REJECTED;
+            throw e;
+        } catch (RiskUnavailableException e) {
+            // A failure, but not an error in tally: the transfer path has logged the backup answer as a warning.
             throw e;
         } catch (RuntimeException e) {
             // Logged here, while the idempotency key is still in the log context. The exception is logged again
@@ -91,7 +96,8 @@ class PostingTelemetry {
         JournalEntry entry = result.entry();
         String entryId = entry.id().toString();
         tagRequestSpan(entryId);
-        try (MDC.MDCCloseable _ = MDC.putCloseable(TelemetryKeys.ENTRY_ID, entryId)) {
+        try (MDC.MDCCloseable _ = MDC.putCloseable(TelemetryKeys.ENTRY_ID, entryId);
+                MDC.MDCCloseable _ = putDecisionId(entry)) {
             if (result.replayed()) {
                 log.info("Replayed entry {} idempotencyKey={}", entry.id(), idempotencyKey);
                 return;
@@ -100,6 +106,12 @@ class PostingTelemetry {
             log.info("Posted entry {} kind={} lines={} idempotencyKey={}",
                     entry.id(), entry.kind(), entry.lines().size(), idempotencyKey);
         }
+    }
+
+    // Null for an entry the risk check did not decide; try-with-resources skips closing a null resource.
+    private static MDC.MDCCloseable putDecisionId(JournalEntry entry) {
+        return entry.decisionId() == null ? null
+                : MDC.putCloseable(TelemetryKeys.DECISION_ID, entry.decisionId().toString());
     }
 
     // The current observation is the HTTP request's, whose span is the root of the posting's trace. A

@@ -105,7 +105,7 @@ Content-Type: application/problem+json
   "detail": "The risk check did not answer in time; try again. A transfer retried with the same Idempotency-Key moves money at most once." }
 ```
 
-- RFC 9457 allows a relative `type`. The existing problems keep `about:blank`. Phase 10 may choose absolute URIs instead; the risk engine only needs the three types to be distinct and stable.
+- RFC 9457 allows a relative `type`, and Phase 10 kept the relative URIs above. The existing problems keep `about:blank`. The risk engine only needs the three types to be distinct and stable.
 - A refused transfer (403 or 503) saves no idempotency key, like every other refusal. A retry with the same key goes through the guard again: a held key is held again, and a key refused by the backup answer gets a real decision once the guard is back.
 
 ### 3.4 The backup answer
@@ -136,7 +136,7 @@ Two new fields on every entry, in the 201 body, in responses saved from Phase 10
 
 - Both fields are always present (null is sent, like `reversesId`).
 - A reversal of a checked transfer is `none`: reversals never ask the guard.
-- Responses saved before Phase 10, and outbox rows written before it, don't have the fields. Phase 10 decides whether a replay of an old key shows them as missing or as `null`/`none`; the risk engine reads a missing field as `decisionId: null, riskCheck: none`.
+- Responses saved before Phase 10, and outbox rows written before it, don't have the fields. A replay of a response saved before Phase 10 shows them as `decisionId: null` and `riskCheck: none`, which is what V7's column default gives that entry's row, so the replay and the stored entry agree. The risk engine reads a missing field in an event as `decisionId: null, riskCheck: none`.
 - Everything else about the event is unchanged: same topic, key, partitions, at-least-once delivery and line-id ordering (docs/design.md, "Event ordering and delivery").
 
 ## 4. Behaviour in detail

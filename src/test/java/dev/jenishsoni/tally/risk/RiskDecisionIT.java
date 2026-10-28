@@ -19,6 +19,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -36,6 +37,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.springframework.web.client.RestClient;
 
 import dev.jenishsoni.tally.TestcontainersConfiguration;
 import dev.jenishsoni.tally.account.Account;
@@ -43,6 +45,7 @@ import dev.jenishsoni.tally.account.AccountService;
 import dev.jenishsoni.tally.idempotency.RequestHash;
 import dev.jenishsoni.tally.posting.JournalEntry;
 import dev.jenishsoni.tally.posting.TransferRequest;
+import dev.jenishsoni.tally.risk.RiskResult.NoDecision;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import tools.jackson.databind.json.JsonMapper;
@@ -69,6 +72,10 @@ class RiskDecisionIT {
     // How far past the timeout tally may answer: its own work around the call (the key lookup and the response)
     // and thread scheduling. Well below the timeout, so a client that waited for the timeout twice would fail.
     private static final Duration MARGIN = Duration.ofMillis(300);
+
+    // The timeout of a client a test builds itself (standaloneClient): long enough that the calls a test leaves
+    // waiting on the fake never time out first.
+    private static final Duration STANDALONE_TIMEOUT = Duration.ofSeconds(10);
 
     private static final String RISK_DURATION = "ledger.risk.duration";
 
@@ -287,6 +294,52 @@ class RiskDecisionIT {
     }
 
     @Test
+    void aCallOverTheCapIsNoDecisionAtOnceWithoutAskingTheGuard() throws Exception {
+        RiskClient risk = standaloneClient();
+        guard.answerWith(guard.silent());
+
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<Future<RiskResult>> waiting = IntStream.range(0, RiskClient.MAX_CALLS_IN_FLIGHT)
+                    .mapToObj(_ -> executor.submit(() -> ask(risk)))
+                    .toList();
+            await("every call slot holds a call the fake received").atMost(STANDALONE_TIMEOUT)
+                    .until(() -> guard.received().size() == RiskClient.MAX_CALLS_IN_FLIGHT);
+
+            long started = System.nanoTime();
+            RiskResult overTheCap = ask(risk);
+            Duration took = Duration.ofNanos(System.nanoTime() - started);
+
+            assertThat(overTheCap).isEqualTo(new NoDecision(NoDecision.Reason.UNAVAILABLE));
+            assertThat(took).isLessThan(MARGIN);
+            assertThat(guard.received()).hasSize(RiskClient.MAX_CALLS_IN_FLIGHT);
+            guard.reset();
+            for (Future<RiskResult> call : waiting) {
+                call.get(STANDALONE_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            }
+        }
+        assertThat(ask(risk)).as("a call once the slots are free").isInstanceOf(RiskResult.Decided.class);
+    }
+
+    @Test
+    void anIdleConnectionIsReusedAndClosedAfterTheKeepAlive() throws InterruptedException {
+        assertThat(System.getProperty(RiskClient.KEEP_ALIVE_PROPERTY))
+                .as("the test JVM keeps idle connections as long as TallyApplication.main makes tally keep them")
+                .isEqualTo(String.valueOf(RiskClient.KEEP_ALIVE.toSeconds()));
+        RiskClient risk = standaloneClient();
+
+        ask(risk);
+        ask(risk);
+        // The fake keeps an idle connection for 30 s, so a new connection after this wait is tally's doing.
+        Thread.sleep(RiskClient.KEEP_ALIVE.plusSeconds(1));
+        ask(risk);
+
+        List<Integer> ports = guard.received().stream().map(FakeGuard.Received::clientPort).toList();
+        assertThat(ports).hasSize(3);
+        assertThat(ports.get(1)).as("the second call's connection").isEqualTo(ports.get(0));
+        assertThat(ports.get(2)).as("the connection of a call after the keep-alive").isNotEqualTo(ports.get(0));
+    }
+
+    @Test
     void entriesAndReversalsNeverAskTheGuard() {
         Account from = account(accounts, "CAD", true);
         Account to = account(accounts, "CAD", false);
@@ -438,6 +491,17 @@ class RiskDecisionIT {
         assertThat(outboxRowsFor(from)).isZero();
         assertThat(jdbc.sql("select count(*) from idempotency_keys where key = :key")
                 .param("key", key).query(Long.class).single()).isZero();
+    }
+
+    // A client of its own, apart from tally's: its own timeout, call slots and connections, so no other test's
+    // connections or waiting calls count.
+    private RiskClient standaloneClient() {
+        return new RiskClient(new RiskProperties(true, guard.url(), STANDALONE_TIMEOUT, Decision.HOLD),
+                RestClient.builder(), json);
+    }
+
+    private static RiskResult ask(RiskClient risk) {
+        return risk.decide(key(), UUID.randomUUID(), UUID.randomUUID(), 100, "CAD");
     }
 
     private RestTestClient.ResponseSpec transfer(String key, Account from, Account to, long amount) {

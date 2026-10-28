@@ -41,7 +41,7 @@ public sealed interface RiskResult {
             /** No answer within tally.risk.timeout, whichever step it was stuck in. */
             TIMEOUT("timeout"),
 
-            /** The connection was refused or reset, or the status was neither 200 nor 409. */
+            /** The connection was refused or reset, the status was neither 200 nor 409, or no call slot was free. */
             UNAVAILABLE("unavailable"),
 
             /** A 200 whose body doesn't parse or breaks the contract. */

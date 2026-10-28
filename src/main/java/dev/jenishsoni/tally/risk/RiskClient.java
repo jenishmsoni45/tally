@@ -6,6 +6,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
@@ -28,8 +29,9 @@ import tools.jackson.databind.json.JsonMapper;
  * Asks the risk engine whether a transfer may go ahead, with POST {tally.risk.url}/v1/decisions
  * (docs/risk-decision-call.md, 3.1 and 3.2). A call ends within tally.risk.timeout plus scheduling slack, and
  * nothing the risk engine does makes it throw: one that is slow, silent, refusing or answering nonsense gives a
- * {@link NoDecision}, for which the caller uses {@link #backupAnswer()}. This class logs nothing, so no request or
- * response body can reach the logs; the caller logs the outcome.
+ * {@link NoDecision}, for which the caller uses {@link #backupAnswer()}, and so does a call made while
+ * {@link #MAX_CALLS_IN_FLIGHT} others are still waiting. This class logs nothing, so no request or response body can
+ * reach the logs; the caller logs the outcome.
  */
 @Component
 public class RiskClient {
@@ -43,9 +45,24 @@ public class RiskClient {
     // tally buffer an unbounded body; a longer one is no decision.
     private static final int MAX_REPLY_BYTES = 16 * 1024;
 
+    // Little's law with Phase 8's peak, 1,857 transfers a second, and the risk engine's 50 ms p99 budget gives about
+    // 93 calls in flight. The JDK client opens a connection for each concurrent call, so without a cap every waiting
+    // transfer, each on its own virtual thread, could hold a connection to the one risk engine process. A call over
+    // the cap doesn't wait for a slot: waiting would spend the timeout on tally's side.
+    static final int MAX_CALLS_IN_FLIGHT = 100;
+
+    // The JDK HttpClient's setting for how long it keeps an idle connection, in seconds; 30 when not set.
+    static final String KEEP_ALIVE_PROPERTY = "jdk.httpclient.keepalive.timeout";
+
+    // Below the 5 s for which the risk engine keeps an idle connection open (docs/risk-decision-call.md, 4.3), so tally
+    // drops an idle connection first and never sends a request on one the risk engine is closing. The JDK doesn't
+    // retry a POST, so that request would be no decision.
+    static final Duration KEEP_ALIVE = Duration.ofSeconds(4);
+
     private final RiskProperties properties;
     private final JsonMapper json;
     private final AtomicReference<Decision> backupAnswer;
+    private final Semaphore callSlots = new Semaphore(MAX_CALLS_IN_FLIGHT);
     // Null while the check is off: its settings are then not checked, so nothing is built from them.
     private final RestClient riskEngine;
 
@@ -54,6 +71,17 @@ public class RiskClient {
         this.json = json;
         this.backupAnswer = new AtomicReference<>(properties.onTimeoutDefault());
         this.riskEngine = properties.enabled() ? riskEngineClient(restClients, properties) : null;
+    }
+
+    /**
+     * Sets how long the JDK's HTTP clients keep an idle connection to {@link #KEEP_ALIVE}, unless the JVM was started
+     * with a value of its own. The JDK reads the value once, when the first of its HTTP clients is built, and applies
+     * it to all of them, so it is set in main, before Spring starts.
+     */
+    public static void limitKeepAlive() {
+        if (System.getProperty(KEEP_ALIVE_PROPERTY) == null) {
+            System.setProperty(KEEP_ALIVE_PROPERTY, String.valueOf(KEEP_ALIVE.toSeconds()));
+        }
     }
 
     /** Whether tally.risk.enabled is on. While it is off, {@link #decide} must not be called. */
@@ -77,10 +105,20 @@ public class RiskClient {
         if (riskEngine == null) {
             throw new IllegalStateException("The risk check is off (tally.risk.enabled), so nothing may ask it");
         }
+        if (!callSlots.tryAcquire()) {
+            return new NoDecision(Reason.UNAVAILABLE);
+        }
+        try {
+            return ask(new DecisionRequest(requestId, fromAccountId, toAccountId, amount, currency, Instant.now()));
+        } finally {
+            callSlots.release();
+        }
+    }
+
+    private RiskResult ask(DecisionRequest request) {
         // Serialized here rather than by RestClient's JSON converter, which streams the body chunked: a body with
         // a Content-Length is one every server reads, Python's built-in http.server included.
-        byte[] body = json.writeValueAsBytes(
-                new DecisionRequest(requestId, fromAccountId, toAccountId, amount, currency, Instant.now()));
+        byte[] body = json.writeValueAsBytes(request);
         long startedAt = System.nanoTime();
         try {
             return riskEngine.post()
@@ -169,7 +207,7 @@ public class RiskClient {
                 .withExecutor(new VirtualThreadTaskExecutor("risk-client-"))
                 // The risk engine speaks plain HTTP/1.1, and the JDK's default, HTTP/2, adds an h2c upgrade to the
                 // first request on each new connection. Keep-alive stays on, the JDK's default, so calls reuse
-                // connections.
+                // connections; limitKeepAlive sets how long an idle one is kept.
                 .withHttpClientCustomizer(client -> client.version(HttpClient.Version.HTTP_1_1))
                 // Replies are a few hundred bytes, so compression saves nothing. Without it the deadline closes the
                 // JDK's body stream itself, not a gzip stream around it, whose close can fail a racing read with a

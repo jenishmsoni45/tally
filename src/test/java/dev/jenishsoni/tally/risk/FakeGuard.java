@@ -35,8 +35,11 @@ final class FakeGuard implements AutoCloseable {
         void answer(HttpExchange exchange, Received request) throws IOException, InterruptedException;
     }
 
-    /** A request the fake received: its JSON body and the trace header tally sent with it. */
-    record Received(Map<String, Object> body, String traceparent) {
+    /**
+     * A request the fake received: its JSON body, the trace header tally sent with it, and tally's port, which tells
+     * one connection from another.
+     */
+    record Received(Map<String, Object> body, String traceparent, int clientPort) {
 
         String requestId() {
             return (String) body.get("requestId");
@@ -148,7 +151,7 @@ final class FakeGuard implements AutoCloseable {
     private void handle(HttpExchange exchange) throws IOException {
         try (exchange) {
             Received request = new Received(readBody(exchange.getRequestBody()),
-                    exchange.getRequestHeaders().getFirst("traceparent"));
+                    exchange.getRequestHeaders().getFirst("traceparent"), exchange.getRemoteAddress().getPort());
             received.add(request);
             answer.answer(exchange, request);
         } catch (InterruptedException e) {

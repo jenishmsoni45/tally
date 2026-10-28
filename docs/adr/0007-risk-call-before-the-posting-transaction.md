@@ -33,6 +33,7 @@ Costs:
 - `ledger.posting.duration` times the whole HTTP path, so with the check on it includes the call. `ledger.risk.duration` times the call alone.
 - Two first requests with one key both pass the replay check and both ask the risk engine, which gives both the same answer. The claim inside the transaction then lets one post and the other replay.
 - The backup answer lives in memory per instance, so after a restart it is the configured default until the first reply. Two replies in flight while the risk engine changes its rule set can arrive in either order, so for a moment tally can keep the older rule set's backup answer, until the next reply.
+- A waiting transfer holds no pooled connection, so tally's pool doesn't bound how many wait on the risk engine at once. The risk client caps its calls in flight at 100 instead, and a transfer over the cap gets the backup answer at once: with the default `hold`, a burst beyond the cap gets 503s rather than a queue.
 
 ## Alternatives
 

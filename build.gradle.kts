@@ -48,6 +48,9 @@ dependencies {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // What TallyApplication.main sets (RiskClient.KEEP_ALIVE), which tests don't run. The JDK reads it once, when its
+    // first HTTP client is built, so it is set when the test JVM starts.
+    systemProperty("jdk.httpclient.keepalive.timeout", "4")
 }
 
 // A simulation sends thousands of requests, so the normal build leaves it to simulationTest.

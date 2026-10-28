@@ -162,7 +162,8 @@ The transaction boundary stays on the posting service, so the guard call happens
 ### 4.3 The timeout
 
 - The whole guard call (connect, send, wait, read the body) ends within `tally.risk.timeout` plus a small margin, whatever the guard does: accept the connection and never answer, answer slowly, or send a body slowly. The tests measure this.
-- Connections to the guard are reused (keep-alive), so a normal call doesn't pay for a new TCP connection.
+- Connections to the guard are reused (keep-alive), so a normal call doesn't pay for a new TCP connection. tally closes a connection after 4 s idle, and the guard keeps an idle connection open for at least 5 s, so tally never sends a request on a connection the guard is closing. The JDK client doesn't retry a POST, so such a request would be no decision.
+- At most 100 calls are in flight at once: Little's law with Phase 8's peak, 1,857 transfers a second, and the guard's 50 ms p99 budget gives about 93. A transfer that finds 100 calls in flight doesn't wait for a slot: it is no decision at once, outcome `unavailable`, and gets the backup answer.
 - One way to get a hard deadline: build the client on the JDK `HttpClient` with a connect timeout and a per-request timeout that together fit within the budget. Phase 10 picks the mechanism; only the measured bound counts.
 
 ### 4.4 Configuration
@@ -185,7 +186,7 @@ At startup, with `enabled: true`: `url` must be an absolute http(s) URL, `timeou
 
 ### 4.5 Observability
 
-- Timer `ledger.risk.duration` around the guard call, tagged `outcome` = `allow`, `hold`, `block`, `conflict`, `timeout`, `unavailable` (connection refused, reset or a status other than 200 and 409) or `invalid` (a body that breaks 3.2), with histogram buckets for p95 and p99 like the other timers.
+- Timer `ledger.risk.duration` around the guard call, tagged `outcome` = `allow`, `hold`, `block`, `conflict`, `timeout`, `unavailable` (connection refused or reset, a status other than 200 and 409, or 100 calls already in flight) or `invalid` (a body that breaks 3.2), with histogram buckets for p95 and p99 like the other timers.
 - The call goes through a client built from Spring Boot's auto-configured builder, so it gets a client span and sends the W3C `traceparent` header; the risk engine can continue the same trace.
 - `decisionId` goes into the log context next to `entry_id` and the idempotency key on the "Posted entry" line. A backup answer logs one WARN line with the key, the outcome tag and the backup answer used. No request or response bodies are logged.
 - `ledger.posting.duration` keeps timing the whole HTTP path, so with the check on it includes the guard's time.
@@ -220,6 +221,7 @@ This relies on Docker Desktop forwarding `host.docker.internal` to the Mac, whic
 For context; built in the risk engine's own phases.
 
 - Serves `POST /v1/decisions` as in 3.1 and 3.2, including the 409 and the current rule set's `onTimeout` in every 200, a replayed decision included.
+- Keeps an idle connection from tally open for at least 5 s (4.3).
 - Its ledger stub mimics this behaviour and the two event fields, so its CI can test without tally.
 - After Phase 10, captures a fixture from a real tally event (with the new fields) and tests that its stub's events parse the same way.
 - Its consumer reads `ledger.entries` through the container listener (4.6) when it runs against tally.

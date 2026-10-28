@@ -10,6 +10,8 @@ public final class TelemetryKeys {
 
     public static final String IDEMPOTENCY_KEY = "idempotency_key";
 
+    public static final String DECISION_ID = "decision_id";
+
     private TelemetryKeys() {
     }
 

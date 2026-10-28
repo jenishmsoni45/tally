@@ -104,6 +104,7 @@ management:
         # across instances.
         "[ledger.posting.duration]": true
         "[ledger.lock.wait]": true
+        "[ledger.risk.duration]": true
   otlp:
     metrics:
       export:

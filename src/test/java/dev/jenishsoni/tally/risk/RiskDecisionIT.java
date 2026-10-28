@@ -204,6 +204,18 @@ class RiskDecisionIT {
         }
     }
 
+    // The 503 cases above meet hold whether it is the default or a remembered reply's, since every reply here names
+    // hold; a client of its own with another default shows which one applies before the first reply.
+    @Test
+    void theBackupAnswerIsTheConfiguredDefaultUntilAReplyNamesOne() {
+        RiskClient risk = standaloneClient(Decision.BLOCK);
+        assertThat(risk.backupAnswer()).as("before any reply").isEqualTo(Decision.BLOCK);
+
+        ask(risk);
+
+        assertThat(risk.backupAnswer()).as("after a reply naming hold").isEqualTo(Decision.HOLD);
+    }
+
     @Test
     void aGuardConflictIsTheKeyConflict() {
         guard.answerWith(json(409, "{\"title\":\"Conflict\",\"status\":409}"));
@@ -295,7 +307,7 @@ class RiskDecisionIT {
 
     @Test
     void aCallOverTheCapIsNoDecisionAtOnceWithoutAskingTheGuard() throws Exception {
-        RiskClient risk = standaloneClient();
+        RiskClient risk = standaloneClient(Decision.HOLD);
         guard.answerWith(guard.silent());
 
         try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -325,7 +337,7 @@ class RiskDecisionIT {
         assertThat(System.getProperty(RiskClient.KEEP_ALIVE_PROPERTY))
                 .as("the test JVM keeps idle connections as long as TallyApplication.main makes tally keep them")
                 .isEqualTo(String.valueOf(RiskClient.KEEP_ALIVE.toSeconds()));
-        RiskClient risk = standaloneClient();
+        RiskClient risk = standaloneClient(Decision.HOLD);
 
         ask(risk);
         ask(risk);
@@ -495,8 +507,8 @@ class RiskDecisionIT {
 
     // A client of its own, apart from tally's: its own timeout, call slots and connections, so no other test's
     // connections or waiting calls count.
-    private RiskClient standaloneClient() {
-        return new RiskClient(new RiskProperties(true, guard.url(), STANDALONE_TIMEOUT, Decision.HOLD),
+    private RiskClient standaloneClient(Decision onTimeoutDefault) {
+        return new RiskClient(new RiskProperties(true, guard.url(), STANDALONE_TIMEOUT, onTimeoutDefault),
                 RestClient.builder(), json);
     }
 

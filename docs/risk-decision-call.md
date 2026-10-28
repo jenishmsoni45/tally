@@ -57,7 +57,7 @@ Content-Type: application/json
 | 200, `decision: "hold"` | Held for review | 403 problem, type `transfer-held`, with `decisionId`; nothing posts |
 | 200, `decision: "block"` | Blocked | 403 problem, type `transfer-blocked`, with `decisionId`; nothing posts |
 | 409 problem | This requestId was already decided for a different transfer | The existing key-conflict 409 ("Idempotency-Key was already used for a different request") |
-| No answer within the timeout, connection refused or reset, any other status, a body that doesn't parse, or a body with a value outside the lists below | No decision | Backup answer (3.4) |
+| No answer within the timeout, connection refused or reset, any other status, a body over 16 KiB, a body that doesn't parse, or a body with a value outside the lists below | No decision | Backup answer (3.4) |
 
 A 200 body:
 
@@ -72,6 +72,7 @@ A 200 body:
 ```
 
 - `decisionId` is a UUID. `decision` and `onTimeout` are each one of `allow`, `hold`, `block`. A 200 that breaks any of these is no decision.
+- A 200 body is at most 16 KiB. A valid one is a few hundred bytes, and the cap stops a broken guard from making tally buffer an unbounded body; a longer one is no decision.
 - tally uses `decisionId`, `decision` and `onTimeout`. It does not store, log or return `ruleSet` or `fired`.
 - The same `requestId` with the same `fromAccountId`, `toAccountId`, `amount` and `currency` always gets the same `decisionId`, `decision`, `ruleSet` and `fired` back, whenever it is asked. `requestedAt` is not part of that match.
 - `onTimeout` is always the current rule set's, in a replayed decision too, so a retried old key can't bring back an older rule set's backup answer (3.4).
@@ -186,7 +187,7 @@ At startup, with `enabled: true`: `url` must be an absolute http(s) URL, `timeou
 
 ### 4.5 Observability
 
-- Timer `ledger.risk.duration` around the guard call, tagged `outcome` = `allow`, `hold`, `block`, `conflict`, `timeout`, `unavailable` (connection refused or reset, a status other than 200 and 409, or 100 calls already in flight) or `invalid` (a body that breaks 3.2), with histogram buckets for p95 and p99 like the other timers.
+- Timer `ledger.risk.duration` around the guard call, tagged `outcome` = `allow`, `hold`, `block`, `conflict`, `timeout`, `unavailable` (connection refused or reset, a status other than 200 and 409, or 100 calls already in flight) or `invalid` (a body that breaks 3.2, one over 16 KiB included), with histogram buckets for p95 and p99 like the other timers.
 - The call goes through a client built from Spring Boot's auto-configured builder, so it gets a client span and sends the W3C `traceparent` header; the risk engine can continue the same trace.
 - `decisionId` goes into the log context next to `entry_id` and the idempotency key on the "Posted entry" line. A backup answer logs one WARN line with the key, the outcome tag and the backup answer used. No request or response bodies are logged.
 - `ledger.posting.duration` keeps timing the whole HTTP path, so with the check on it includes the guard's time.

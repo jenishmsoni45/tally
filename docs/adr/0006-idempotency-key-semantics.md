@@ -28,7 +28,7 @@ Good:
 
 Costs:
 
-- A waiting duplicate holds a pooled connection until the first request ends. `RetryStormIT` sends five times the pool's 10 connections and every request is answered, but a bigger storm would queue.
+- A waiting duplicate holds a pooled connection until the first request ends. `RetryStormIT` sends five times the pool's 10 connections, so most of its requests wait for a connection as well as for the key, and every one was answered. A storm big enough to wait past the pool's 2,000 ms connection timeout would get 503s, which a client retries with the same key.
 - The hash depends on the request records. A record that gains a field changes the hash of keys saved before it, so their retries get a 409 (`RequestHash` Javadoc).
 - A retry after a refusal can get a different answer: `IdempotencyIT.aRefusedRequestDoesNotUseUpItsKey` gets a 422 and later a 201 with the same key.
 - With no expiry and no caller scope, the table grows without bound and two callers can pick the same key (PROGRESS.md Ideas).

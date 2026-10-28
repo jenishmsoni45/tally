@@ -13,7 +13,7 @@ Money must add up exactly. Every entry sums to zero per currency, and the recoun
   - `negate` uses `Math.negateExact`.
   - Both throw on overflow instead of wrapping.
 
-  `PostingServiceImpl` turns that exception into a 422, "Amounts are too large to add exactly".
+  `PostingServiceImpl` turns that exception into a 422: "Amounts are too large to add exactly", or "Amount is too large to reverse exactly" when a reversal cannot negate a line.
 - Amount columns are `bigint`.
 - Requests take amounts as JSON integers (`Long` fields in `TransferRequest` and `LineRequest`). Because `spring.jackson.deserialization.accept-float-as-int` is `false`, `100.75` gets a 400. Jackson used to truncate it to 100, until a Phase 2A test found this and `bfac303` fixed it.
 - A currency is checked as 3 uppercase letters in `Money`, in Bean Validation and in the schema. A line's currency must equal its account's (composite foreign key, `V2__journal.sql`).

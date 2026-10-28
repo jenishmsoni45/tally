@@ -4,7 +4,7 @@ A two-minute demo of tally. The times are slots in the script's plan, not measur
 
 ## Before you start
 
-- Docker is running and `jq` is installed.
+- JDK 25 is installed (the build does not download one), Docker is running, and `curl`, `jq` and `openssl` are installed.
 - Terminal 1 (the app), at the repo root:
 
   ```sh

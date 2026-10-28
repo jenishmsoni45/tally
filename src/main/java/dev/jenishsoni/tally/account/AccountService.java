@@ -1,6 +1,10 @@
 package dev.jenishsoni.tally.account;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -35,6 +39,19 @@ public class AccountService {
     public Account get(UUID id) {
         return repository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Account " + id + " not found"));
+    }
+
+    /** All of them in one query. An unknown id is a 404 naming the first unknown one in the list's order. */
+    public Map<UUID, Account> getAll(List<UUID> ids) {
+        Map<UUID, Account> found = repository.findAllById(ids).stream()
+                .collect(Collectors.toMap(Account::id, Function.identity()));
+        ids.stream()
+                .filter(id -> !found.containsKey(id))
+                .findFirst()
+                .ifPresent(id -> {
+                    throw new NotFoundException("Account " + id + " not found");
+                });
+        return found;
     }
 
 }

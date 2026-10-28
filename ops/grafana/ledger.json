@@ -141,7 +141,7 @@
       "id": 4,
       "type": "timeseries",
       "title": "Balance lock wait",
-      "description": "One SELECT ... FOR UPDATE on a balance row: waiting for other postings' locks plus one round trip.",
+      "description": "The one SELECT ... FOR UPDATE on a posting's balance rows: waiting for other postings' locks plus one round trip.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"

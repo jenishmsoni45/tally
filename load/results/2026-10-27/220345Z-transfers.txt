@@ -1,0 +1,44 @@
+time="2026-10-27T18:04:27-04:00" level=info msg="Seeded 1000 accounts with 10000000 cents each in 1052 ms" source=console
+
+
+  █ THRESHOLDS 
+
+    http_req_duration{scenario:transfers}
+    ✓ 'max>=0' max=168.13ms
+
+    http_req_failed{scenario:transfers}
+    ✓ 'rate<0.01' rate=0.00%
+
+    http_reqs{scenario:transfers}
+    ✓ 'count>=0' count=368371
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 368371  1528.007184/s
+    checks_succeeded...: 100.00% 368371 out of 368371
+    checks_failed......: 0.00%   0 out of 368371
+
+    ✓ transfer answered 201
+
+    HTTP
+    http_req_duration..............: avg=28.28ms min=1.64ms med=29.49ms max=168.13ms p(90)=38.7ms  p(95)=43.16ms p(99)=57.39ms
+      { expected_response:true }...: avg=28.28ms min=1.64ms med=29.49ms max=168.13ms p(90)=38.7ms  p(95)=43.16ms p(99)=57.39ms
+      { scenario:transfers }.......: avg=28.34ms min=1.64ms med=29.5ms  max=168.13ms p(90)=38.72ms p(95)=43.18ms p(99)=57.41ms
+    http_req_failed................: 0.00%  0 out of 369383
+      { scenario:transfers }.......: 0.00%  0 out of 368371
+    http_reqs......................: 369383 1532.204971/s
+      { scenario:transfers }.......: 368371 1528.007184/s
+
+    EXECUTION
+    iteration_duration.............: avg=28.41ms min=1.67ms med=29.57ms max=168.27ms p(90)=38.79ms p(95)=43.26ms p(99)=57.48ms
+    iterations.....................: 368371 1528.007184/s
+    vus............................: 50     min=0           max=50
+    vus_max........................: 50     min=50          max=50
+
+    NETWORK
+    data_received..................: 189 MB 782 kB/s
+    data_sent......................: 122 MB 505 kB/s
+
+
+

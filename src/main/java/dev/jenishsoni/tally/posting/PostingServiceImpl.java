@@ -29,10 +29,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 class PostingServiceImpl implements PostingService {
 
-    // Ascending account id as PostgreSQL orders uuid (unsigned bytes). UUID.compareTo is signed and would
-    // differ, which would let a later `order by account_id for update` deadlock against a posting.
-    private static final Comparator<UUID> LOCK_ORDER = Comparator.comparing(UUID::toString);
-
     // Only successful postings are saved; a refused one rolls back with its key, which can then be retried.
     private static final int CREATED = 201;
 
@@ -117,15 +113,17 @@ class PostingServiceImpl implements PostingService {
 
     private JournalEntry post(String kind, UUID reversesId, String description, Instant effectiveAt,
             List<LineRequest> lines) {
+        requireLines(lines);
         requireBalanced(lines);
         Map<UUID, Account> touched = loadAccounts(lines);
         requireAccountCurrencies(lines, touched);
         Map<UUID, Money> changes = netChangePerAccount(lines);
-        Map<UUID, Long> current = lockBalances(changes);
+        // Step 3, in one statement for all the accounts.
+        Map<UUID, Long> current = balances.lockBalances(changes.keySet());
         requireNotReversedYet(reversesId);
         Map<UUID, Long> updated = requireNoOverdraft(touched, changes, current);
         JournalEntry entry = insertEntry(kind, reversesId, description, effectiveAt, lines);
-        updated.forEach(balances::storeBalance);
+        balances.storeBalances(updated);
         return entry;
     }
 
@@ -136,6 +134,13 @@ class PostingServiceImpl implements PostingService {
         }
         if (request.fromAccountId().equals(request.toAccountId())) {
             throw new IllegalArgumentException("A transfer needs two different accounts");
+        }
+    }
+
+    // The controller refuses an empty entry too; the account statements below need at least one account.
+    private void requireLines(List<LineRequest> lines) {
+        if (lines.isEmpty()) {
+            throw new IllegalArgumentException("An entry needs at least one line");
         }
     }
 
@@ -156,11 +161,7 @@ class PostingServiceImpl implements PostingService {
 
     // An unknown account is a 404 here, before any lock is taken.
     private Map<UUID, Account> loadAccounts(List<LineRequest> lines) {
-        Map<UUID, Account> touched = new HashMap<>();
-        for (LineRequest line : lines) {
-            touched.computeIfAbsent(line.accountId(), accounts::get);
-        }
-        return touched;
+        return accounts.getAll(lines.stream().map(LineRequest::accountId).distinct().toList());
     }
 
     private void requireAccountCurrencies(List<LineRequest> lines, Map<UUID, Account> touched) {
@@ -173,22 +174,14 @@ class PostingServiceImpl implements PostingService {
         }
     }
 
-    // The only ordered map: its iteration order is the order step 3 locks in.
+    // Ascending account id as PostgreSQL orders uuid, the order the balance rows are locked in, so a refusal for
+    // funds names the same account whatever the order of the lines. UUID.compareTo is signed and would differ.
     private Map<UUID, Money> netChangePerAccount(List<LineRequest> lines) {
-        Map<UUID, Money> changes = new TreeMap<>(LOCK_ORDER);
+        Map<UUID, Money> changes = new TreeMap<>(Comparator.comparing(UUID::toString));
         for (LineRequest line : lines) {
             changes.merge(line.accountId(), new Money(line.amount(), line.currency()), PostingServiceImpl::plus);
         }
         return changes;
-    }
-
-    // Step 3: ascending account id, the same order in every posting, so two postings never wait on each other.
-    private Map<UUID, Long> lockBalances(Map<UUID, Money> changes) {
-        Map<UUID, Long> current = new HashMap<>();
-        for (UUID accountId : changes.keySet()) {
-            current.put(accountId, balances.lockBalance(accountId));
-        }
-        return current;
     }
 
     // A reversal locks the same accounts as the entry it undoes, so once those locks are held a competing

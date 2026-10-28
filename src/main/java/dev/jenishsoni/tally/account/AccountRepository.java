@@ -1,6 +1,8 @@
 package dev.jenishsoni.tally.account;
 
 import java.time.OffsetDateTime;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -53,6 +55,17 @@ class AccountRepository {
                 .param("id", id)
                 .query(ACCOUNT_MAPPER)
                 .optional();
+    }
+
+    List<Account> findAllById(Collection<UUID> ids) {
+        return jdbc.sql("""
+                select id, code, currency, allow_negative, created_at
+                from accounts
+                where id in (:ids)
+                """)
+                .param("ids", ids)
+                .query(ACCOUNT_MAPPER)
+                .list();
     }
 
 }

@@ -210,4 +210,39 @@ Verify: the scope-reviewer checks the README and ADRs against the code and flags
 
 Done when: a friend could clone it, run one command and post a transfer within 10 minutes.
 
+---
+
+## Phase 10 · Risk decision call
+
+Before a transfer opens its posting transaction, tally asks the risk engine (project 2) whether it may go ahead. The contract, the behaviour and the reasons are in `docs/risk-decision-call.md`; follow it exactly and keep it current. The check is off by default, so tally without the risk engine behaves exactly as before.
+
+Tasks
+1. `V7__entry_risk.sql`: add `decision_id uuid` (nullable) and `risk_check text not null default 'none'` with `check (risk_check in ('decided', 'fallback', 'none'))` to `journal_entries`, plus a check that `decision_id` is not null exactly when `risk_check = 'decided'`.
+2. `JournalEntry` gains `decisionId` and `riskCheck`. Every place that builds a `JournalEntry` (insert, find for reversal, replay) carries them. Decide and document how a replay of a response saved before V7 shows the missing fields. Update tests that assert an exact entry body.
+3. `risk/` package: `RiskProperties` (`tally.risk.enabled`, `url`, `timeout`, `on-timeout-default`, validated at startup when enabled), a `RiskClient` that posts the decision request and returns a sealed result (decided with id, decision and onTimeout; conflict; no decision with a reason), and the remembered latest `onTimeout`. The client is built from Spring Boot's auto-configured builder (for the trace header) and ends every call within `timeout` plus a small margin. That builder needs the one new dependency of this phase, `org.springframework.boot:spring-boot-starter-restclient`, versioned by the Spring Boot plugin.
+4. A non-transactional step before `PostingService.postTransfer` (outside the `@Transactional` method): replay check by key, then the guard call, then the outcome (allow or backup allow posts with the two fields; hold or block gives a 403 problem with `decisionId`; backup hold or block gives a 503 problem; the guard's 409 gives the existing key-conflict 409). Only `POST /transfers`; entries and reversals get `riskCheck` `none`.
+5. Three problem types in `ApiExceptionHandler`: `/problems/transfer-held` (403), `/problems/transfer-blocked` (403), `/problems/risk-unavailable` (503).
+6. Observability: timer `ledger.risk.duration` tagged by outcome with histogram buckets; `decisionId` in the log context of the posted-entry line; one WARN line per backup answer; one dashboard panel.
+7. `compose.yaml`: a second Kafka listener advertised as `host.docker.internal:9094` and published on `127.0.0.1:9094`, so containers in other Compose projects can read `ledger.entries`.
+8. Tests in `RiskDecisionIT`, with real PostgreSQL and Kafka, and a fake guard on the JDK's built-in `com.sun.net.httpserver.HttpServer` (no new dependency):
+   1. allow: 201 with the fake's `decisionId` and `riskCheck` `decided`; the outbox payload carries both.
+   2. hold: 403 `transfer-held` with `decisionId`; no entry, lines, balance change or outbox row; the key isn't saved, and a retry asks the fake again.
+   3. block: 403 `transfer-blocked`, with the same checks as hold.
+   4. a fake that accepts the connection and never answers, and one that answers after twice the timeout: tally answers within `timeout` plus the margin the test states, using the backup answer.
+   5. connection refused, a 500, a body that isn't JSON, and a decision outside allow, hold and block: each uses the backup answer.
+   6. backup default `hold`: 503 `risk-unavailable` and nothing posts. A fake that once replied `onTimeout: allow` and then goes silent: the next transfer posts with `riskCheck` `fallback` and `decisionId` null.
+   7. the fake answers 409: tally answers its key-conflict 409.
+   8. a key that already has a saved response: the fake is not called, and the saved 201 is replayed.
+   9. the request the fake receives has exactly the fields of the contract, `requestId` equal to the key, and `requestedAt` between the test's clock readings before and after the call.
+   10. while one transfer waits on a slow fake, another transfer between the same two accounts (answered allow at once) commits, which shows no lock or transaction is held during the wait.
+   11. the check off (the default): the fake is never called, and entries get `riskCheck` `none`. With it on, `POST /entries` and a reversal never call the fake.
+   12. the V7 check refuses `risk_check = 'decided'` without a `decision_id`, and a `decision_id` without `decided`.
+9. Docs: `docs/design.md` event section lists `decisionId` and `riskCheck`; README's API section gains the 403s, the new 503 and the `tally.risk.*` settings; CLAUDE.md's status list gains 403 and the risk-unavailable 503; `docs/adr/0007-risk-call-before-the-posting-transaction.md` (context, decision, consequences, alternatives: calling inside the transaction, calling after commit, asynchronous review).
+
+Parallel: one builder on the migration and the entry fields (1 and 2), one on the `risk/` package (3), one on the compose listener and the docs (7 and 9). The main session writes the non-transactional step, the problem types and the observability (4 to 6), then `RiskDecisionIT` (8), which joins them.
+
+Verify: `./gradlew build` (all tests; the existing ones unchanged apart from the exact-body updates of task 2). Then `TALLY_RISK_ENABLED=true ./gradlew bootRun` with nothing on the risk URL: one transfer with `curl -w '%{time_total}'` answers 503 `risk-unavailable`, and the printed time is within the timeout plus the margin. Then, from a throwaway `apache/kafka:4.3.1` container, `/opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server host.docker.internal:9094 --topic ledger.entries --from-beginning --max-messages 1` prints an event that carries `decisionId` and `riskCheck`.
+
+Done when: every test passes, the container consumer reads an event with both new fields, and tally with the check off behaves exactly as before.
+
 Stretch (only if I ask): holds (authorise, capture, void), a Kotlin version of posting, multi-currency entries, a circuit breaker and load shedding on the posting endpoints, idempotency-key expiry (24 h).

@@ -168,8 +168,10 @@ With the check on, `POST /transfers` asks the risk engine, a separate service, w
 | --- | --- | --- | --- |
 | `tally.risk.enabled` | `TALLY_RISK_ENABLED` | `false` | Turns the check on |
 | `tally.risk.url` | `TALLY_RISK_URL` | `http://localhost:8000` | The risk engine's base URL; tally posts to `{url}/v1/decisions` |
-| `tally.risk.timeout` | none | `100ms` | The longest tally waits for a decision |
-| `tally.risk.on-timeout-default` | none | `hold` | The backup answer until the risk engine's first reply names one |
+| `tally.risk.timeout` | `TALLY_RISK_TIMEOUT` | `100ms` | The longest tally waits for a decision |
+| `tally.risk.on-timeout-default` | `TALLY_RISK_ONTIMEOUTDEFAULT` | `hold` | The backup answer until the risk engine's first reply names one |
+
+`application.yaml` names the first two variables; the last two work through Spring Boot's relaxed binding of environment variables.
 
 With the check on, tally refuses to start if `url` is not an absolute http(s) URL, `timeout` is not positive, or `on-timeout-default` is not `allow`, `hold` or `block`.
 
@@ -182,7 +184,7 @@ With the check on, tally refuses to start if `url` is not an absolute http(s) UR
 | no decision (no answer within the timeout, an error, or a reply tally cannot use), backup answer allow | 201: the transfer posts with `riskCheck` `fallback` and `decisionId` null |
 | no decision, backup answer hold or block | 503, type `/problems/risk-unavailable`; nothing posts |
 
-A refused transfer (403 or 503) saves no idempotency key, so a retry with the same key asks the risk engine again. With the check on and nothing listening on the URL, every transfer gets the backup answer, which is `hold` by default, so a 503. Entries posted with the check off, general entries and reversals have `riskCheck` `none` and `decisionId` null. Both fields are in the 201 body, the saved response and the Kafka event, and a replay of a response saved before Phase 10 shows them as null and `none`.
+A refused transfer (403 or 503) saves no idempotency key, so a retry with the same key asks the risk engine again. The risk engine keeps its own answer per key, though: once it has decided a key, the same key with a different transfer is a 409, even when tally refused the first one with a 404 or 422. With the check off, such a key can be reused for a corrected request. With the check on and nothing listening on the URL, every transfer gets the backup answer, which is `hold` by default, so a 503. Entries posted with the check off, general entries and reversals have `riskCheck` `none` and `decisionId` null. Both fields are in the 201 body, the saved response and the Kafka event, and a replay of a response saved before Phase 10 shows them as null and `none`.
 
 The timer `ledger.risk.duration` times each call, tagged with its outcome (`allow`, `hold`, `block`, `conflict`, `timeout`, `unavailable` or `invalid`), and the dashboard has a panel for it. The "Posted entry" log line carries `decision_id`, and each backup answer logs one WARN line. `ledger.posting.duration` still times the whole request, so with the check on it includes the wait for the risk engine.
 

@@ -27,7 +27,7 @@ Good:
 
 Costs:
 
-- A transfer the risk engine allowed can still be refused by tally (unknown account 404, wrong currency or insufficient funds 422). The risk engine then has a decision with no entry, and tally does not tell it what happened.
+- A transfer the risk engine allowed can still be refused by tally (unknown account 404, wrong currency or insufficient funds 422). The risk engine then has a decision with no entry, and tally does not tell it what happened. A retry of that key with a corrected transfer is then a 409, because the risk engine has decided the key for the first one; with the check off, tally would post it.
 - During a risk engine outage every transfer still asks it and can wait up to the timeout before tally uses the backup answer. There is no circuit breaker in this phase (PLAN.md stretch list). While the backup answer is `hold`, the default, an outage stops every transfer.
 - A refusal by the backup answer is a 503, not a 403, because nothing was decided. The key is not saved, so a retry with the same key asks the risk engine again.
 - `ledger.posting.duration` times the whole HTTP path, so with the check on it includes the call. `ledger.risk.duration` times the call alone.

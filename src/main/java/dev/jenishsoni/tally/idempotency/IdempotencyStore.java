@@ -6,8 +6,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * Makes a retried request return its first response instead of repeating the work. Both methods run
- * inside the caller's transaction, so a request that fails and rolls back leaves no key behind and
+ * Makes a retried request return its first response instead of repeating the work. Claiming and saving
+ * run inside the caller's transaction, so a request that fails and rolls back leaves no key behind and
  * can be retried with the same key.
  */
 @Component
@@ -44,6 +44,19 @@ public class IdempotencyStore {
                 .param("key", key)
                 .query((rs, row) -> existingClaim(key, requestHash, rs.getString("request_hash"),
                         rs.getObject("response_status", Integer.class), rs.getString("response_body")))
+                .single();
+    }
+
+    /**
+     * Whether a completed request saved its response under this key. Needs no transaction, so a caller can look
+     * before slow work such as the risk check. A key claimed by a transaction still in progress is not visible yet;
+     * the claim settles that case later.
+     */
+    public boolean hasSavedResponse(String key) {
+        // A key row becomes visible only at commit, together with its response.
+        return jdbc.sql("select exists (select from idempotency_keys where key = :key)")
+                .param("key", key)
+                .query(Boolean.class)
                 .single();
     }
 
